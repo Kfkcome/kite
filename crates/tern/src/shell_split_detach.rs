@@ -435,6 +435,7 @@ impl Shell {
             return;
         }
         self.focus_front_pane(window, cx);
+        self.persist_tabs();
     }
 }
 

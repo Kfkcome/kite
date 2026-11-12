@@ -268,6 +268,7 @@ impl Shell {
         tab.panes.push(pane);
         tab.focused = id;
         self.focus_front_pane(window, cx);
+        self.persist_tabs();
     }
 
     /// ⌘W: a split tab loses the focused pane, a tab with one pane closes.
@@ -302,6 +303,7 @@ impl Shell {
         tab.focused = next;
         self.focus_front_pane(window, cx);
         self.close_orphan_panels(window, cx);
+        self.persist_tabs();
     }
 
     pub(crate) fn focus_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
@@ -313,6 +315,7 @@ impl Shell {
         }
         tab.focused = id;
         self.focus_front_pane(window, cx);
+        self.persist_tabs();
     }
 
     pub(crate) fn move_pane_focus(

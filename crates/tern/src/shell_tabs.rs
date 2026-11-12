@@ -3,10 +3,13 @@
 use gpui::{AppContext, Context, Entity, KeyDownEvent, Window};
 use tern_ssh::ConnectSpec;
 
-use super::Shell;
+use super::{Pane, Shell, Tab};
 use crate::session::Launch;
+use crate::split::{self, Axis, Node};
 use crate::tabs;
-use crate::tabs_store::{SavedKind, SavedTab, SavedTabs};
+use crate::tabs_store::{
+    CURRENT, Load, SavedAxis, SavedKind, SavedNode, SavedTab, SavedTabs, focus_among,
+};
 use crate::text_input::{InputColors, TextInput};
 
 /// A title being edited: which tab, and the field holding the text.
@@ -147,11 +150,10 @@ impl Shell {
         }
     }
 
-    /// Writes the open tabs to `tabs.json`; a failed write is logged, not fatal. It runs on
-    /// every change, never at launch, so an unreadable file survives until the user changes
-    /// something.
+    /// Writes the open tabs to `tabs.json`. A failed write is logged, not fatal. Skipped while
+    /// restoring, when reopening is off, and when the file on disk is newer or corrupt.
     pub(crate) fn persist_tabs(&self) {
-        if self.restoring || !self.settings.reopen_tabs {
+        if self.restoring || !self.settings.reopen_tabs || self.tabs_unreadable {
             return;
         }
         let Some(dir) = crate::settings::dir() else {
@@ -164,67 +166,228 @@ impl Shell {
 
     fn saved_tabs(&self) -> SavedTabs {
         SavedTabs {
-            tabs: self
-                .tabs
-                .iter()
-                .map(|tab| SavedTab {
-                    // Temporary until step 6 saves the tree. A multi-host tab records only the
-                    // focused pane's host, so the other panes are not restored on the next launch.
-                    kind: SavedKind::Ssh {
-                        alias: tab.focused_alias().to_owned(),
-                    },
-                    title: tab.title.clone(),
-                })
-                .collect(),
+            version: CURRENT,
+            tabs: self.tabs.iter().map(saved_tab).collect(),
             active: self.active,
         }
     }
 
-    /// Reopens the last run's tabs: connections wait for Enter.
+    /// Reopens the last run's tabs. Every pane waits for Enter, so a split does not dial
+    /// every server at launch. With reopening off, tabs stay closed, but a newer or corrupt
+    /// file is still remembered so a later change cannot replace it.
     pub(crate) fn restore_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(dir) = crate::settings::dir() else {
+            return;
+        };
+        let loaded = SavedTabs::load(&dir);
+        if !loaded.may_write() {
+            self.tabs_unreadable = true;
+            return;
+        }
         if !self.settings.reopen_tabs {
             return;
         }
-        let Some(saved) = crate::settings::dir().and_then(|d| SavedTabs::load(&d)) else {
+        let Load::Ready(saved) = loaded else {
             return;
         };
+        let saved = saved.sanitize(|alias| {
+            let keep = self.alias_keepable(alias);
+            if !keep {
+                tracing::warn!(alias, "tab_restore_skipped");
+            }
+            keep
+        });
         self.restoring = true;
-        for saved_tab in &saved.tabs {
-            let opened = match &saved_tab.kind {
-                SavedKind::Ssh { alias } => self.reopen_idle(alias, window, cx),
-                SavedKind::Unknown => false,
-            };
-            if opened {
-                let title = saved_tab.title.clone();
-                if let Some(tab) = self.tabs.last_mut() {
-                    tab.title = title;
-                }
+        let mut skipped_before_active = 0;
+        for (ix, saved_tab) in saved.tabs.iter().enumerate() {
+            if !self.restore_saved_tab(saved_tab, window, cx) && ix < saved.active {
+                skipped_before_active += 1;
             }
         }
-        self.restoring = false;
         if !self.tabs.is_empty() {
+            let saved = SavedTabs {
+                active: saved.active.saturating_sub(skipped_before_active),
+                ..saved
+            };
             let active = saved.active_slot().min(self.tabs.len() - 1);
             self.activate_tab(active, window, cx);
         }
+        self.restoring = false;
     }
 
-    /// A connection tab that does not dial yet. A host that is gone from the lists is skipped.
-    fn reopen_idle(&mut self, alias: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let spec = match self.hosts.iter().find(|h| h.alias == alias) {
+    /// One tab, with a pane per leaf. False when every host was skipped.
+    fn restore_saved_tab(
+        &mut self,
+        saved: &SavedTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(node) = saved_layout(saved) else {
+            return false;
+        };
+        let mut opened = Vec::new();
+        self.open_saved_leaves(&node, &mut opened, window, cx);
+        let kept: Vec<bool> = opened.iter().map(|pane| pane.is_some()).collect();
+        let Some(focus) = focus_among(saved.focused, &kept) else {
+            return false;
+        };
+        let Some((tree, panes)) = assemble(&node, &mut opened.into_iter()) else {
+            return false;
+        };
+        let Some(&focused) = tree.leaves().get(focus) else {
+            return false;
+        };
+        self.next_tab += 1;
+        self.tabs.push(Tab {
+            id: self.next_tab,
+            title: saved.title.clone(),
+            tree,
+            focused,
+            panes,
+        });
+        true
+    }
+
+    fn open_saved_leaves(
+        &mut self,
+        node: &SavedNode,
+        out: &mut Vec<Option<Pane>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if node.is_split() {
+            if let Some(first) = &node.first {
+                self.open_saved_leaves(first, out, window, cx);
+            }
+            if let Some(second) = &node.second {
+                self.open_saved_leaves(second, out, window, cx);
+            }
+            return;
+        }
+        let Some(alias) = node.alias.as_deref() else {
+            return;
+        };
+        out.push(self.open_idle_pane(alias, window, cx));
+    }
+
+    /// A connection that does not dial yet. `None` when this host cannot be opened.
+    fn open_idle_pane(
+        &mut self,
+        alias: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Pane> {
+        let spec = match self.hosts.iter().find(|host| host.alias == alias) {
             Some(host) => ConnectSpec::from_host_entry(host),
             None => ConnectSpec::parse(alias),
         };
         match spec {
-            Ok(spec) => {
-                self.open_tab(Launch::SshIdle(spec), alias, window, cx);
-                true
-            }
+            Ok(spec) => Some(self.make_pane(Launch::SshIdle(spec), alias, window, cx)),
             Err(e) => {
                 tracing::warn!(alias, error = %e, "tab_restore_skipped");
-                false
+                None
             }
         }
     }
+
+    /// In the host list, or a target `ConnectSpec::parse` accepts. Anything else is dropped.
+    fn alias_keepable(&self, alias: &str) -> bool {
+        self.hosts.iter().any(|host| host.alias == alias) || ConnectSpec::parse(alias).is_ok()
+    }
+}
+
+fn saved_tab(tab: &Tab) -> SavedTab {
+    let leaves = tab.tree.leaves();
+    let focused = leaves.iter().position(|id| *id == tab.focused).unwrap_or(0);
+    SavedTab {
+        kind: SavedKind::Ssh {
+            alias: tab.focused_alias().to_owned(),
+        },
+        title: tab.title.clone(),
+        tree: Some(saved_node(&tab.tree, &tab.panes)),
+        focused,
+    }
+}
+
+fn saved_layout(saved: &SavedTab) -> Option<SavedNode> {
+    if let Some(tree) = saved.tree.clone() {
+        return Some(tree);
+    }
+    match &saved.kind {
+        SavedKind::Ssh { alias } => Some(SavedNode::leaf(alias.clone())),
+        SavedKind::Unknown => None,
+    }
+}
+
+fn saved_node(node: &Node, panes: &[Pane]) -> SavedNode {
+    match node {
+        Node::Leaf(id) => {
+            let alias = panes
+                .iter()
+                .find(|pane| pane.id == *id)
+                .map(|pane| pane.alias.clone())
+                .unwrap_or_default();
+            SavedNode::leaf(alias)
+        }
+        Node::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } => {
+            let axis = match axis {
+                Axis::Row => SavedAxis::Row,
+                Axis::Column => SavedAxis::Column,
+            };
+            SavedNode::split(
+                axis,
+                *ratio,
+                saved_node(first, panes),
+                saved_node(second, panes),
+            )
+        }
+    }
+}
+
+fn assemble<I>(node: &SavedNode, panes: &mut I) -> Option<(Node, Vec<Pane>)>
+where
+    I: Iterator<Item = Option<Pane>>,
+{
+    if node.is_split() {
+        let axis = match node.axis {
+            Some(SavedAxis::Column) => Axis::Column,
+            _ => Axis::Row,
+        };
+        let ratio = split::clamp_ratio(node.ratio.unwrap_or(0.5));
+        let first = node
+            .first
+            .as_deref()
+            .and_then(|child| assemble(child, panes));
+        let second = node
+            .second
+            .as_deref()
+            .and_then(|child| assemble(child, panes));
+        return match (first, second) {
+            (Some((first, mut panes_a)), Some((second, panes_b))) => {
+                panes_a.extend(panes_b);
+                Some((
+                    Node::Split {
+                        axis,
+                        ratio,
+                        first: Box::new(first),
+                        second: Box::new(second),
+                    },
+                    panes_a,
+                ))
+            }
+            (Some(only), None) | (None, Some(only)) => Some(only),
+            (None, None) => None,
+        };
+    }
+    node.alias.as_ref()?;
+    let pane = panes.next().flatten()?;
+    let id = pane.id;
+    Some((Node::Leaf(id), vec![pane]))
 }
 
 /// What a typed title means: nothing, or the alias it already shows, is no custom title.

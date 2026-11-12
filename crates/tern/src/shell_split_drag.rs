@@ -246,7 +246,7 @@ impl Shell {
         in_second: PaneId,
         cx: &mut Context<Self>,
     ) {
-        // Copy the payload out before `set_split_ratio` borrows `cx` to mutate the tree.
+        // Copy the payload out before the tree is borrowed mutably.
         let resize = *event.drag(cx);
         if resize.in_first != in_first || resize.in_second != in_second {
             return;
@@ -263,7 +263,7 @@ impl Shell {
                 f32::from(event.bounds.size.height),
             ),
         };
-        self.set_split_ratio(
+        self.move_split_ratio(
             resize.in_first,
             resize.in_second,
             ratio_from_pointer(along, origin, length, DIVIDER_PX),
@@ -271,6 +271,7 @@ impl Shell {
         );
     }
 
+    /// A double-click resets the ratio and writes it at once.
     fn set_split_ratio(
         &mut self,
         in_first: PaneId,
@@ -278,11 +279,49 @@ impl Shell {
         ratio: f32,
         cx: &mut Context<Self>,
     ) {
+        if self.change_split_ratio(in_first, in_second, ratio, cx) {
+            self.split_ratio_dirty = false;
+            self.persist_tabs();
+        }
+    }
+
+    fn move_split_ratio(
+        &mut self,
+        in_first: PaneId,
+        in_second: PaneId,
+        ratio: f32,
+        cx: &mut Context<Self>,
+    ) {
+        if self.change_split_ratio(in_first, in_second, ratio, cx) {
+            self.split_ratio_dirty = true;
+        }
+    }
+
+    fn change_split_ratio(
+        &mut self,
+        in_first: PaneId,
+        in_second: PaneId,
+        ratio: f32,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(tab) = self.tabs.get_mut(self.active) else {
-            return;
+            return false;
         };
-        tab.tree.set_ratio(in_first, in_second, ratio);
+        let before = tab.tree.clone();
+        if !tab.tree.set_ratio(in_first, in_second, ratio) || tab.tree == before {
+            return false;
+        }
         cx.notify();
+        true
+    }
+
+    /// Writes a divider move once the drag is over. The handle's mouse-up does not fire
+    /// after a drag, because gpui keeps the pointer, so the next frame does it.
+    pub(super) fn flush_split_ratio(&mut self, cx: &App) {
+        if self.split_ratio_dirty && !cx.has_active_drag() {
+            self.split_ratio_dirty = false;
+            self.persist_tabs();
+        }
     }
 
     /// Drops a preview after the drag is gone. Move listeners run before gpui clears it.

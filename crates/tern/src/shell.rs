@@ -150,6 +150,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 tabs: Vec::new(),
                 renaming: None,
                 restoring: false,
+                tabs_unreadable: false,
                 next_tab: 0,
                 next_pane: 0,
                 broadcast: None,
@@ -157,6 +158,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 panels: Default::default(),
                 active: 0,
                 split_preview: None,
+                split_ratio_dirty: false,
                 split_preview_kind: None,
                 pane_insert: None,
                 error: None,
@@ -243,6 +245,8 @@ pub struct Shell {
     renaming: Option<tabs_ui::Rename>,
     /// True while the last run's tabs are being reopened, so half a list is never saved.
     restoring: bool,
+    /// Set when `tabs.json` is newer or corrupt, so it is not overwritten.
+    tabs_unreadable: bool,
     /// Input typed in one tab also going to others, and the list that picks them.
     next_tab: broadcast_ui::TabId,
     next_pane: PaneId,
@@ -252,6 +256,8 @@ pub struct Shell {
     active: usize,
     /// The pane half a dragged tab or pane would split into, while the pointer is over it.
     split_preview: Option<split_drag::SplitPreview>,
+    /// A split divider moved during a drag and has not been written yet.
+    split_ratio_dirty: bool,
     /// Which drag last wrote `split_preview`, so a tab merge and a pane rearrange do not share a hint.
     split_preview_kind: Option<split_drag::PreviewKind>,
     /// Where a pane dragged by its title would be inserted in the strip.
@@ -576,6 +582,7 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.clear_split_preview_without_drag(cx);
+        self.flush_split_ratio(cx);
         self.clear_pane_insert_without_drag(cx);
         // Whatever held focus can disappear (a field hidden after sync, a closed form or tab);
         // with nothing focused gpui dispatches no keys at all, so the window takes it back.

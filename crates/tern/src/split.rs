@@ -60,7 +60,7 @@ pub struct Rect {
 }
 
 /// A non-finite value becomes 0.5 before clamping, because `f32::clamp` leaves NaN as NaN.
-fn clamp_ratio(ratio: f32) -> f32 {
+pub(crate) fn clamp_ratio(ratio: f32) -> f32 {
     let ratio = if ratio.is_finite() {
         ratio
     } else {
