@@ -152,6 +152,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 broadcast_picker: None,
                 panels: Default::default(),
                 active: 0,
+                split_preview: None,
                 error: None,
                 picker: None,
                 sidebar_tween: None,
@@ -243,6 +244,8 @@ pub struct Shell {
     broadcast_picker: Option<broadcast_ui::BroadcastPicker>,
     panels: forwards_ui::Panels,
     active: usize,
+    /// The pane half a dragged tab would split into, while the pointer is over it.
+    split_preview: Option<split_drag::SplitPreview>,
     error: Option<String>,
     picker: Option<Picker>,
     sidebar_tween: Option<WidthTween>,
@@ -583,6 +586,7 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.clear_split_preview_without_drag(cx);
         // Whatever held focus can disappear (a field hidden after sync, a closed form or tab);
         // with nothing focused gpui dispatches no keys at all, so the window takes it back.
         if window.focused(cx).is_none() {

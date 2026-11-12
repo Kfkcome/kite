@@ -1,16 +1,21 @@
 //! Dragging a split divider sets that split's ratio. The grab target is wider than the 1px
 //! rule and sits above the terminals; a nested split does not move its ancestor.
+//!
+//! Dragging a single-pane tab over another tab previews the half of the pane under the pointer.
+//! Leaving that pane, or ending the drag, clears the preview. Nothing is merged.
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, DragMoveEvent, Hsla, InteractiveElement, IntoElement,
+    AnyElement, App, AppContext, Context, DragMoveEvent, Hsla, InteractiveElement, IntoElement,
     MouseButton, MouseUpEvent, ParentElement, StatefulInteractiveElement, Styled, div, px,
     relative,
 };
 
 use crate::chrome::DragGhost;
-use crate::split::{Axis, Node, PaneId};
+use crate::split::{Axis, Node, PaneId, Side};
+use crate::tabs::DraggedTab;
 
+use super::broadcast_ui::TabId;
 use super::{Shell, Tab};
 
 /// Visual thickness reserved before the two panes share the rest.
@@ -38,12 +43,74 @@ pub fn ratio_from_pointer(along: f32, origin: f32, length: f32, divider: f32) ->
     }
 }
 
+/// Whether a dragged tab should preview a split on the pane under the pointer.
+/// `source_panes` is how many panes the dragged tab has.
+/// `same_tab` is true when the pointer is over that tab's own content.
+/// `rel_x`, `rel_y` are the pointer in the target pane's unit square.
+/// None when the source is not a single pane, when it is the same tab, when
+/// the point is outside 0..=1, or when any input is non-finite.
+pub fn split_drop_hint(
+    source_panes: usize,
+    same_tab: bool,
+    rel_x: f32,
+    rel_y: f32,
+) -> Option<crate::split::Side> {
+    if source_panes != 1
+        || same_tab
+        || !rel_x.is_finite()
+        || !rel_y.is_finite()
+        || !(0.0..=1.0).contains(&rel_x)
+        || !(0.0..=1.0).contains(&rel_y)
+    {
+        return None;
+    }
+    Some(crate::split::drop_side(rel_x, rel_y))
+}
+
+/// The pointer as fractions of a pane. `None` when the pane has no area, a value is
+/// non-finite, or the point falls outside 0..=1.
+fn pane_rel(
+    x: f32,
+    y: f32,
+    origin_x: f32,
+    origin_y: f32,
+    width: f32,
+    height: f32,
+) -> Option<(f32, f32)> {
+    if !x.is_finite()
+        || !y.is_finite()
+        || !origin_x.is_finite()
+        || !origin_y.is_finite()
+        || !width.is_finite()
+        || !height.is_finite()
+        || width <= 0.
+        || height <= 0.
+    {
+        return None;
+    }
+    let rel_x = (x - origin_x) / width;
+    let rel_y = (y - origin_y) / height;
+    if (0.0..=1.0).contains(&rel_x) && (0.0..=1.0).contains(&rel_y) {
+        Some((rel_x, rel_y))
+    } else {
+        None
+    }
+}
+
 /// Which split is being dragged. The pane pair is what [`Node::set_ratio`] matches.
 #[derive(Clone, Copy, Debug)]
 struct SplitResize {
     in_first: PaneId,
     in_second: PaneId,
     axis: Axis,
+}
+
+/// Which half of a pane a dragged tab would split into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SplitPreview {
+    pub(super) tab: TabId,
+    pub(super) pane: PaneId,
+    pub(super) side: Side,
 }
 
 /// `left`/`top` of `ratio` is the point as if the rule had no thickness. The rule starts
@@ -208,11 +275,175 @@ impl Shell {
         tab.tree.set_ratio(in_first, in_second, ratio);
         cx.notify();
     }
+
+    /// Drops a preview after the drag is gone. Move listeners run before gpui clears it.
+    pub(super) fn clear_split_preview_without_drag(&mut self, cx: &App) {
+        if self.split_preview.is_some() && !cx.has_active_drag() {
+            self.split_preview = None;
+        }
+    }
+
+    /// Half-pane wash for the preview aimed at this leaf, while a tab drag is active.
+    pub(super) fn split_drop_overlay(
+        &self,
+        tab: &Tab,
+        pane: PaneId,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        if !cx.has_active_drag() {
+            return None;
+        }
+        let preview = self.split_preview?;
+        if preview.tab != tab.id || preview.pane != pane {
+            return None;
+        }
+        Some(half_overlay(preview.side, self.theme.accent))
+    }
+
+    /// Sets the preview when the pointer is inside this pane, and clears it only when the
+    /// pointer has left and the stored preview names this pane. A sibling hears the same
+    /// move; it must not wipe a preview it does not own.
+    pub(super) fn on_tab_drag_over_pane(
+        &mut self,
+        event: &DragMoveEvent<DraggedTab>,
+        tab: TabId,
+        pane: PaneId,
+        cx: &mut Context<Self>,
+    ) {
+        let source_ix = event.drag(cx).ix;
+        let inside = pane_rel(
+            f32::from(event.event.position.x),
+            f32::from(event.event.position.y),
+            f32::from(event.bounds.origin.x),
+            f32::from(event.bounds.origin.y),
+            f32::from(event.bounds.size.width),
+            f32::from(event.bounds.size.height),
+        );
+        if let Some((rel_x, rel_y)) = inside {
+            let source_panes = self
+                .tabs
+                .get(source_ix)
+                .map_or(0, |source| source.panes.len());
+            let same_tab = source_ix == self.active
+                || self
+                    .tabs
+                    .get(source_ix)
+                    .is_some_and(|source| source.id == tab);
+            let Some(side) = split_drop_hint(source_panes, same_tab, rel_x, rel_y) else {
+                return;
+            };
+            let next = SplitPreview { tab, pane, side };
+            if self.split_preview != Some(next) {
+                self.split_preview = Some(next);
+                cx.notify();
+            }
+            return;
+        }
+        if self
+            .split_preview
+            .is_some_and(|preview| preview.pane == pane)
+        {
+            self.split_preview = None;
+            cx.notify();
+        }
+    }
+}
+
+fn half_overlay(side: Side, accent: Hsla) -> AnyElement {
+    let el = div()
+        .absolute()
+        .bg(accent.opacity(0.25))
+        .border_1()
+        .border_color(accent);
+    match side {
+        Side::Left => el.top_0().bottom_0().left_0().w_1_2(),
+        Side::Right => el.top_0().bottom_0().right_0().w_1_2(),
+        Side::Top => el.left_0().right_0().top_0().h_1_2(),
+        Side::Bottom => el.left_0().right_0().bottom_0().h_1_2(),
+    }
+    .into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_single_pane_over_another_tab_hints_the_quarter_under_the_pointer() {
+        assert_eq!(split_drop_hint(1, false, 0.1, 0.5), Some(Side::Left));
+        assert_eq!(split_drop_hint(1, false, 0.9, 0.5), Some(Side::Right));
+        assert_eq!(split_drop_hint(1, false, 0.5, 0.1), Some(Side::Top));
+        assert_eq!(split_drop_hint(1, false, 0.5, 0.9), Some(Side::Bottom));
+        assert_eq!(split_drop_hint(1, false, 0.8, 0.6), Some(Side::Right));
+    }
+
+    #[test]
+    fn the_edges_of_the_unit_square_still_hint() {
+        assert_eq!(split_drop_hint(1, false, 0.0, 0.5), Some(Side::Left));
+        assert_eq!(split_drop_hint(1, false, 1.0, 0.5), Some(Side::Right));
+        assert_eq!(split_drop_hint(1, false, 0.5, 0.0), Some(Side::Top));
+        assert_eq!(split_drop_hint(1, false, 0.5, 1.0), Some(Side::Bottom));
+    }
+
+    #[test]
+    fn a_drag_from_a_split_tab_does_not_hint() {
+        assert_eq!(split_drop_hint(0, false, 0.1, 0.5), None);
+        assert_eq!(split_drop_hint(2, false, 0.1, 0.5), None);
+        assert_eq!(split_drop_hint(2, false, 0.9, 0.5), None);
+        assert_eq!(split_drop_hint(3, false, 0.8, 0.6), None);
+    }
+
+    #[test]
+    fn dragging_over_the_source_tab_does_not_hint() {
+        assert_eq!(split_drop_hint(1, true, 0.1, 0.5), None);
+        assert_eq!(split_drop_hint(1, true, 0.5, 0.9), None);
+        assert_eq!(split_drop_hint(1, true, 0.8, 0.6), None);
+    }
+
+    #[test]
+    fn a_pointer_outside_the_pane_does_not_hint() {
+        assert_eq!(split_drop_hint(1, false, -0.1, 0.5), None);
+        assert_eq!(split_drop_hint(1, false, 1.1, 0.5), None);
+        assert_eq!(split_drop_hint(1, false, 0.5, -0.1), None);
+        assert_eq!(split_drop_hint(1, false, 0.5, 1.1), None);
+    }
+
+    #[test]
+    fn a_non_finite_pointer_does_not_hint() {
+        assert_eq!(split_drop_hint(1, false, f32::NAN, 0.5), None);
+        assert_eq!(split_drop_hint(1, false, 0.1, f32::NAN), None);
+        assert_eq!(split_drop_hint(1, false, f32::INFINITY, 0.5), None);
+        assert_eq!(split_drop_hint(1, false, 0.5, f32::NEG_INFINITY), None);
+        assert_eq!(
+            split_drop_hint(1, false, f32::NEG_INFINITY, f32::INFINITY),
+            None
+        );
+    }
+
+    #[test]
+    fn a_point_inside_the_pane_is_a_fraction_of_its_bounds() {
+        assert_eq!(pane_rel(25., 50., 0., 0., 100., 100.), Some((0.25, 0.5)));
+        assert_eq!(pane_rel(10., 20., 10., 20., 40., 80.), Some((0., 0.)));
+        assert_eq!(pane_rel(50., 100., 10., 20., 40., 80.), Some((1., 1.)));
+    }
+
+    #[test]
+    fn a_point_outside_the_pane_bounds_is_not_inside() {
+        assert_eq!(pane_rel(9., 20., 10., 20., 40., 80.), None);
+        assert_eq!(pane_rel(51., 20., 10., 20., 40., 80.), None);
+        assert_eq!(pane_rel(10., 19., 10., 20., 40., 80.), None);
+        assert_eq!(pane_rel(10., 101., 10., 20., 40., 80.), None);
+    }
+
+    #[test]
+    fn a_pane_with_no_area_or_a_non_finite_measure_has_no_point() {
+        assert_eq!(pane_rel(1., 1., 0., 0., 0., 10.), None);
+        assert_eq!(pane_rel(1., 1., 0., 0., 10., 0.), None);
+        assert_eq!(pane_rel(1., 1., 0., 0., -5., 10.), None);
+        assert_eq!(pane_rel(f32::NAN, 1., 0., 0., 10., 10.), None);
+        assert_eq!(pane_rel(1., 1., f32::INFINITY, 0., 10., 10.), None);
+        assert_eq!(pane_rel(1., 1., 0., 0., f32::NAN, 10.), None);
+    }
 
     #[test]
     fn mid_pointer_is_the_fraction_of_the_usable_length() {

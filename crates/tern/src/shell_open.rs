@@ -5,10 +5,11 @@
 //! another session like the focused one; ⌘W closes a pane before it closes the tab.
 
 use crate::split::{Axis, Direction, Node, PaneId};
+use crate::tabs::DraggedTab;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, transparent_black,
+    AnyElement, Context, DragMoveEvent, Focusable, InteractiveElement, IntoElement, ParentElement,
+    Styled, Window, div, transparent_black,
 };
 use tern_ssh::{ConnectSpec, HostEntry};
 
@@ -334,9 +335,11 @@ impl Shell {
                     return div().into_any_element();
                 };
                 let id = *id;
+                let tab_id = tab.id;
                 let focused = tab.focused == id;
                 div()
                     .id(("pane", id))
+                    .relative()
                     .size_full()
                     // Only a split tab marks its focus; a lone pane would just wear a frame.
                     .when(split, |el| {
@@ -350,6 +353,12 @@ impl Shell {
                     // gives it the keyboard.
                     .capture_any_mouse_down(cx.listener(move |s, _, w, cx| s.focus_pane(id, w, cx)))
                     .child(pane.session.read(cx).view.clone())
+                    .children(self.split_drop_overlay(tab, id, cx))
+                    .on_drag_move(cx.listener(
+                        move |shell, event: &DragMoveEvent<DraggedTab>, _, cx| {
+                            shell.on_tab_drag_over_pane(event, tab_id, id, cx);
+                        },
+                    ))
                     .into_any_element()
             }
             Node::Split {

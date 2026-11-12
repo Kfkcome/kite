@@ -23,12 +23,8 @@ pub enum Direction {
 /// Which edge of a target pane an inserted or moved pane sits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
-    // No binary caller yet. `not(test)` because tests use these items, so a bare expect
-    // would be unfulfilled there.
-    #[cfg_attr(not(test), expect(dead_code))]
     Left,
     Right,
-    #[cfg_attr(not(test), expect(dead_code))]
     Top,
     Bottom,
 }
@@ -295,7 +291,6 @@ impl Node {
 /// The side of a pane under `(rel_x, rel_y)`, as fractions of that pane. The axis farther
 /// from the center wins; a tie, including `(0.5, 0.5)`, is top or bottom, so the center is
 /// [`Side::Bottom`]. Non-finite input is [`Side::Bottom`].
-#[cfg_attr(not(test), expect(dead_code))]
 pub fn drop_side(rel_x: f32, rel_y: f32) -> Side {
     // A NaN comparison is never true, so it would not follow the rule below.
     if !rel_x.is_finite() || !rel_y.is_finite() {
