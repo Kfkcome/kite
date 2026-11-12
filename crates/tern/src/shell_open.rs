@@ -8,7 +8,7 @@ use crate::split::{Axis, Direction, Node, PaneId};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, px, transparent_black,
+    div, transparent_black,
 };
 use tern_ssh::{ConnectSpec, HostEntry};
 
@@ -320,7 +320,7 @@ impl Shell {
         self.render_node(tab, &tab.tree, tab.panes.len() > 1, cx)
     }
 
-    fn render_node(
+    pub(super) fn render_node(
         &self,
         tab: &Tab,
         node: &Node,
@@ -354,26 +354,10 @@ impl Shell {
             }
             Node::Split {
                 axis,
+                ratio,
                 first,
                 second,
-                ..
-            } => {
-                let half = |el: gpui::Div| el.flex_1().min_w(px(0.)).min_h(px(0.));
-                let a = self.render_node(tab, first, split, cx);
-                let b = self.render_node(tab, second, split, cx);
-                let divider = match axis {
-                    Axis::Row => div().flex_none().bg(t.border).w(px(1.)).h_full(),
-                    Axis::Column => div().flex_none().bg(t.border).h(px(1.)).w_full(),
-                };
-                div()
-                    .size_full()
-                    .flex()
-                    .when(*axis == Axis::Column, |el| el.flex_col())
-                    .child(half(div()).child(a))
-                    .child(divider)
-                    .child(half(div()).child(b))
-                    .into_any_element()
-            }
+            } => self.render_split(tab, *axis, *ratio, first, second, cx),
         }
     }
 }

@@ -60,6 +60,8 @@ mod menu;
 mod open;
 #[path = "shell_settings.rs"]
 mod settings_ui;
+#[path = "shell_split_drag.rs"]
+mod split_drag;
 #[path = "shell_sync.rs"]
 mod sync_ui;
 #[path = "shell_tabs.rs"]

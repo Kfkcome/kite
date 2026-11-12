@@ -36,10 +36,8 @@ pub enum Side {
 pub type PaneId = u32;
 
 /// Smallest fraction of a split given to `first`, so a pane cannot be squeezed away.
-#[cfg_attr(not(test), expect(dead_code))]
 pub const RATIO_MIN: f32 = 0.15;
 /// Largest fraction of a split given to `first`.
-#[cfg_attr(not(test), expect(dead_code))]
 pub const RATIO_MAX: f32 = 0.85;
 
 const DEFAULT_RATIO: f32 = 0.5;
@@ -66,7 +64,6 @@ pub struct Rect {
 }
 
 /// A non-finite value becomes 0.5 before clamping, because `f32::clamp` leaves NaN as NaN.
-#[cfg_attr(not(test), expect(dead_code))]
 fn clamp_ratio(ratio: f32) -> f32 {
     let ratio = if ratio.is_finite() {
         ratio
@@ -189,7 +186,6 @@ impl Node {
     /// Sets the ratio of the split with `in_first` in its first subtree and `in_second` in its
     /// second, clamped to [`RATIO_MIN`]..=[`RATIO_MAX`]. Non-finite input becomes an even
     /// split. False when no split separates that pair.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn set_ratio(&mut self, in_first: PaneId, in_second: PaneId, ratio: f32) -> bool {
         match self {
             Node::Leaf(_) => false,
