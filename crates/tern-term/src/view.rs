@@ -23,7 +23,7 @@ use crate::config::TerminalOptions;
 use crate::config::TerminalTheme;
 use crate::element::TerminalElement;
 use crate::links::Link;
-use crate::mappings::keys::keystroke_bytes;
+use crate::mappings::keys::{ime_character, keystroke_bytes};
 use crate::mappings::mouse::{alt_scroll, mouse_button_report, mouse_moved_report, scroll_report};
 use crate::search::{FindKey, apply_key, paste_into};
 use crate::terminal::{SelectionType, Side, Terminal, TerminalEvent};
@@ -78,6 +78,8 @@ pub struct TerminalView {
     cursor_on: bool,
     last_input: Instant,
     _blink_task: Task<()>,
+    /// Uncommitted input-method text. Empty while the input method is idle.
+    ime: ime::Composition,
     /// Counts bells, so each flash restarts its fade animation.
     bell_seq: usize,
     bell_active: bool,
@@ -130,6 +132,7 @@ impl TerminalView {
             hover_link: None,
             last_pointer: None,
             options: TerminalOptions::default(),
+            ime: ime::Composition::default(),
             cursor_on: true,
             last_input: Instant::now(),
             _blink_task: Self::blink_loop(cx),
@@ -216,6 +219,11 @@ impl TerminalView {
             return;
         }
         let mode = self.mode(cx);
+        // Printable characters belong to the input method. Stopping them here
+        // is what keeps Pinyin from ever seeing the key.
+        if ime_character(ks, mode, self.option_as_meta).is_some() {
+            return;
+        }
         let bytes = keystroke_bytes(ks, mode, self.option_as_meta);
         if let Some(bytes) = bytes {
             self.send_input(bytes, cx);
@@ -565,6 +573,9 @@ impl Focusable for TerminalView {
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
+        if !focused {
+            self.ime.clear();
+        }
         let find_bar = self.find.as_ref().map(|query| {
             let t = self.terminal.read(cx);
             let theme = t.theme();
@@ -702,5 +713,6 @@ mod tests;
 
 mod cursor;
 mod find_links;
+mod ime;
 use cursor::{BELL_FLASH_MS, BELL_PEAK_OPACITY};
 use find_links::{find_status, is_find_chord};

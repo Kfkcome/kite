@@ -256,6 +256,32 @@ pub fn keystroke_bytes(
         .map(|s| s.as_bytes().to_vec())
 }
 
+/// The typed character when this key should reach the IME instead of the
+/// remote. Escape sequences (enter, arrows, ctrl-c, option-as-meta) are
+/// `None`: the terminal still owns those.
+///
+/// macOS Pinyin is an ASCII-capable input mode, so the platform delivers the
+/// key to the view before the input method. Swallowing it means composition
+/// never starts.
+pub fn ime_character(
+    keystroke: &Keystroke,
+    mode: Modes,
+    option_as_meta: bool,
+) -> Option<&str> {
+    if to_esc_str(keystroke, mode, option_as_meta).is_some() {
+        return None;
+    }
+    let m = &keystroke.modifiers;
+    if m.control || m.platform || m.function {
+        return None;
+    }
+    let text = keystroke.key_char.as_deref()?;
+    if text.is_empty() || text.chars().any(char::is_control) {
+        return None;
+    }
+    Some(text)
+}
+
 ///   Code     Modifiers
 /// ---------+---------------------------
 ///    2     | Shift
@@ -506,5 +532,54 @@ mod test {
             8,
             modifier_code(&Keystroke::parse("shift-ctrl-alt-a").unwrap())
         );
+    }
+
+    fn typed(key: &str, ch: &str) -> Keystroke {
+        Keystroke {
+            modifiers: Modifiers::default(),
+            key: key.to_string(),
+            key_char: Some(ch.to_string()),
+        }
+    }
+
+    #[test]
+    fn plain_characters_defer_to_ime() {
+        let mode = Modes::empty();
+        for (key, ch) in [
+            ("a", "a"),
+            ("a", "A"),
+            ("5", "5"),
+            ("space", " "),
+            (".", "."),
+        ] {
+            let mut ks = typed(key, ch);
+            if ch == "A" {
+                ks.modifiers.shift = true;
+            }
+            assert_eq!(ime_character(&ks, mode, true), Some(ch));
+            assert_eq!(
+                keystroke_bytes(&ks, mode, true).as_deref(),
+                Some(ch.as_bytes())
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_keys_do_not_defer_to_ime() {
+        let mode = Modes::empty();
+        let mut enter = Keystroke::parse("enter").unwrap();
+        enter.key_char = Some("\n".into());
+        assert!(ime_character(&enter, mode, true).is_none());
+        assert!(ime_character(&Keystroke::parse("up").unwrap(), mode, true).is_none());
+        assert!(ime_character(&Keystroke::parse("ctrl-c").unwrap(), mode, true).is_none());
+
+        let mut alt_a = Keystroke::parse("alt-a").unwrap();
+        alt_a.key_char = Some("å".into());
+        assert!(ime_character(&alt_a, mode, true).is_none());
+        assert_eq!(ime_character(&alt_a, mode, false), Some("å"));
+
+        let mut ctrl = typed("c", "c");
+        ctrl.modifiers.control = true;
+        assert!(ime_character(&ctrl, mode, true).is_none());
     }
 }

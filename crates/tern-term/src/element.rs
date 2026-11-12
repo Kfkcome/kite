@@ -246,6 +246,8 @@ impl gpui::Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let view = self.view.clone();
+        view.read(cx).attach_input(bounds, view.clone(), window, cx);
         let (cell_w, line_h, origin) = (prepaint.cell_w, prepaint.line_h, prepaint.origin);
         window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
             for quad in prepaint.bg_quads.drain(..) {
@@ -279,8 +281,57 @@ impl gpui::Element for TerminalElement {
             if let Some(quad) = prepaint.cursor_over.take() {
                 window.paint_quad(quad);
             }
+            paint_ime_preedit(&self.view, origin, cell_w, line_h, window, cx);
         });
     }
+}
+
+/// The uncommitted input-method string, drawn over the cursor cell. It is not
+/// on the grid: the remote has not been sent it yet.
+fn paint_ime_preedit(
+    view: &Entity<TerminalView>,
+    origin: gpui::Point<Pixels>,
+    cell_w: Pixels,
+    line_h: Pixels,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(text) = view.read(cx).ime_preedit().map(str::to_string) else {
+        return;
+    };
+    let Some(cursor) = view.read(cx).terminal.read(cx).cursor() else {
+        return;
+    };
+    let theme = view.read(cx).terminal.read(cx).theme().clone();
+    let run = TextRun {
+        len: text.len(),
+        font: mono_font(&theme),
+        color: theme.foreground,
+        background_color: None,
+        underline: Some(gpui::UnderlineStyle {
+            color: Some(theme.foreground),
+            thickness: px(1.0),
+            wavy: false,
+        }),
+        strikethrough: None,
+    };
+    let line = window.text_system().shape_line(
+        SharedString::from(text),
+        px(theme.font_size),
+        &[run],
+        None,
+    );
+    let top_left = point(
+        origin.x + cell_w * cursor.col as f32,
+        origin.y + line_h * cursor.row as f32,
+    );
+    let mut bg = theme.background;
+    bg.a = 1.0;
+    window.paint_quad(fill(
+        Bounds::new(top_left, size(line.width.max(cell_w), line_h)),
+        bg,
+    ));
+    let _ = line.paint(top_left, line_h, gpui::TextAlign::Left, None, window, cx);
 }
 
 /// Contiguous `[start, end)` column runs of cells satisfying `pred`.
