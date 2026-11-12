@@ -9,7 +9,7 @@ use crate::tabs::DraggedTab;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, DragMoveEvent, Focusable, InteractiveElement, IntoElement, ParentElement,
-    Styled, Window, div, transparent_black,
+    Styled, Window, div, px, transparent_black,
 };
 use tern_ssh::{ConnectSpec, HostEntry};
 
@@ -201,6 +201,7 @@ impl Shell {
         self.sync_broadcast(cx);
         if self.tabs.is_empty() {
             self.active = 0;
+            self.close_orphan_panels(window, cx);
             self.persist_tabs();
             window.focus(&self.focus, cx);
             cx.notify();
@@ -212,6 +213,7 @@ impl Shell {
             self.active
         };
         self.activate_tab(next, window, cx);
+        self.close_orphan_panels(window, cx);
     }
 }
 
@@ -299,6 +301,7 @@ impl Shell {
         tab.panes.retain(|p| p.id != tab.focused);
         tab.focused = next;
         self.focus_front_pane(window, cx);
+        self.close_orphan_panels(window, cx);
     }
 
     pub(crate) fn focus_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
@@ -327,7 +330,7 @@ impl Shell {
     }
 
     /// Gives the keyboard to the focused pane of the front tab, and points a broadcast at it.
-    fn focus_front_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn focus_front_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.get(self.active) {
             let focus = tab.session().read(cx).view.focus_handle(cx);
             window.focus(&focus, cx);
@@ -357,22 +360,36 @@ impl Shell {
                 let id = *id;
                 let tab_id = tab.id;
                 let focused = tab.focused == id;
+                let alias = pane.alias.clone();
+                let view = pane.session.read(cx).view.clone();
                 div()
                     .id(("pane", id))
                     .relative()
                     .size_full()
                     // Only a split tab marks its focus; a lone pane would just wear a frame.
                     .when(split, |el| {
-                        el.border_1().border_color(if focused {
+                        el.flex().flex_col().border_1().border_color(if focused {
                             t.accent.opacity(0.55)
                         } else {
                             transparent_black()
                         })
                     })
                     // Before the terminal sees the click, so selecting text in a pane also
-                    // gives it the keyboard.
+                    // gives it the keyboard. The title bar is inside this hitbox.
                     .capture_any_mouse_down(cx.listener(move |s, _, w, cx| s.focus_pane(id, w, cx)))
-                    .child(pane.session.read(cx).view.clone())
+                    .when(split, |el| {
+                        el.child(self.pane_title_bar(tab_id, id, &alias, focused, cx))
+                    })
+                    .child(if split {
+                        div()
+                            .flex_1()
+                            .min_h(px(0.))
+                            .min_w(px(0.))
+                            .child(view)
+                            .into_any_element()
+                    } else {
+                        view.into_any_element()
+                    })
                     .children(self.split_drop_overlay(tab, id, cx))
                     .on_drag_move(cx.listener(
                         move |shell, event: &DragMoveEvent<DraggedTab>, _, cx| {
@@ -381,6 +398,14 @@ impl Shell {
                     ))
                     .on_drop(cx.listener(move |shell, from: &DraggedTab, window, cx| {
                         shell.accept_tab_drop(from, tab_id, id, window, cx);
+                    }))
+                    .on_drag_move(cx.listener(
+                        move |shell, event: &DragMoveEvent<DraggedPane>, _, cx| {
+                            shell.on_pane_drag_over_pane(event, tab_id, id, cx);
+                        },
+                    ))
+                    .on_drop(cx.listener(move |shell, from: &DraggedPane, window, cx| {
+                        shell.accept_pane_rearrange(from, tab_id, id, window, cx);
                     }))
                     .into_any_element()
             }

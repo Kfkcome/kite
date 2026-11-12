@@ -55,7 +55,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let panel = self.panels.sftp.as_ref()?;
-        let tab = self.tabs.iter().find(|t| t.id == panel.tab)?;
+        let tab = self.tab_for_session(&panel.session)?;
         let t = self.theme;
         let viewport = window.viewport_size();
         let label = tab.strip_label();

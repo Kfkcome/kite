@@ -259,9 +259,11 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let Some(preview) = self.split_preview.take() else {
+            self.split_preview_kind = None;
             cx.notify();
             return;
         };
+        self.split_preview_kind = None;
         if preview.tab != tab || preview.pane != pane {
             cx.notify();
             return;
@@ -279,6 +281,7 @@ impl Shell {
         self.renaming = None;
         self.sync_broadcast(cx);
         self.show_tab(active, window, cx);
+        self.close_orphan_panels(window, cx);
     }
 }
 

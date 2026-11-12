@@ -7,11 +7,13 @@ use std::time::Duration;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Action, Animation, AnimationExt, AnyElement, AppContext, Context, ElementId, Entity,
-    FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement,
-    Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, actions, div,
-    pulsating_between, px,
+    Action, Animation, AnimationExt, AnyElement, AppContext, Context, DragMoveEvent, ElementId,
+    Entity, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window,
+    actions, div, pulsating_between, px,
 };
+
+use crate::shell::DraggedPane;
 
 use crate::indicator::Dot;
 use crate::shell::Shell;
@@ -106,28 +108,67 @@ pub fn strip(
     tabs: &[TabInfo],
     active: usize,
     scroll: &ScrollHandle,
+    insert_at: Option<usize>,
     t: &Theme,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement + use<> {
+    let len = tabs.len();
     let mut row = div()
         .id("tab-strip")
         .flex()
         .items_center()
         .gap(px(2.))
-        .min_w_0()
-        .flex_shrink(1.)
+        .flex_1()
+        .min_w(px(0.))
         .overflow_x_scroll()
         .track_scroll(scroll);
     for (ix, tab) in tabs.iter().enumerate() {
-        row = row.child(tab_pill(ix, tab, ix == active, t, cx));
+        row = row.child(tab_pill(ix, tab, ix == active, insert_at, t, cx));
     }
-    row
+    row.child(strip_end(insert_at, len, t.accent, cx))
+}
+
+/// The 2px mark at an insertion slot: the left edge of that pill, or of the trailing gap.
+fn insert_line(accent: Hsla) -> gpui::Div {
+    div()
+        .absolute()
+        .left_0()
+        .top(px(4.))
+        .bottom(px(4.))
+        .w(px(2.))
+        .rounded_full()
+        .bg(accent)
+}
+
+fn strip_end(
+    insert_at: Option<usize>,
+    len: usize,
+    accent: Hsla,
+    cx: &mut Context<Shell>,
+) -> impl IntoElement {
+    div()
+        .id("tab-strip-end")
+        .flex_1()
+        .flex_shrink_0()
+        .min_w(px(12.))
+        .h(px(26.))
+        .relative()
+        .when(insert_at == Some(len), |el| el.child(insert_line(accent)))
+        .on_drag_move(
+            cx.listener(|shell, event: &DragMoveEvent<DraggedPane>, _, cx| {
+                shell.on_pane_drag_over_strip_end(event, cx);
+            }),
+        )
+        .on_drop(cx.listener(|shell, dragged: &DraggedPane, window, cx| {
+            shell.accept_pane_detach(dragged, window, cx)
+        }))
 }
 
 fn tab_pill(
     ix: usize,
     tab: &TabInfo,
     active: bool,
+    insert_at: Option<usize>,
     t: &Theme,
     cx: &mut Context<Shell>,
 ) -> impl IntoElement + use<> {
@@ -142,6 +183,7 @@ fn tab_pill(
     div()
         .id(("tab", ix))
         .group("tab")
+        .relative()
         .h(px(26.))
         .flex_shrink(1.)
         .min_w(px(72.))
@@ -179,6 +221,15 @@ fn tab_pill(
         .drag_over::<DraggedTab>(move |style, _, _, _| style.bg(accent.opacity(0.25)))
         .on_drop(cx.listener(move |shell, from: &DraggedTab, window, cx| {
             shell.move_tab(from.ix, ix, window, cx)
+        }))
+        .when(insert_at == Some(ix), |el| el.child(insert_line(accent)))
+        .on_drag_move(
+            cx.listener(move |shell, event: &DragMoveEvent<DraggedPane>, _, cx| {
+                shell.on_pane_drag_over_pill(event, ix, cx);
+            }),
+        )
+        .on_drop(cx.listener(|shell, dragged: &DraggedPane, window, cx| {
+            shell.accept_pane_detach(dragged, window, cx)
         }))
         .on_mouse_down(
             MouseButton::Right,

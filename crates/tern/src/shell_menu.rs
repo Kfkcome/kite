@@ -219,6 +219,7 @@ impl Shell {
         self.tabs = vec![kept];
         self.sync_broadcast(cx);
         self.activate_tab(0, window, cx);
+        self.close_orphan_panels(window, cx);
     }
 
     fn close_menu(&mut self, cx: &mut Context<Self>) {

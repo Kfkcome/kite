@@ -13,8 +13,8 @@ use std::time::Duration;
 use gpui::{AppContext, Context, Entity, FocusHandle, Focusable, Window, actions};
 use tern_ssh::{Progress, Sftp, SftpEntry, SftpError};
 
-use super::broadcast_ui::TabId;
 use super::{Shell, Toast, ToastKind};
+use crate::session::Session;
 use crate::sftp_paths;
 use crate::text_input::{InputColors, TextInput};
 
@@ -30,7 +30,9 @@ pub(super) enum State {
 }
 
 pub(super) struct SftpPanel {
-    pub(super) tab: TabId,
+    /// The session this panel was opened on. A later merge or detach keeps the channel
+    /// with that pane, rather than with the tab id it used to have.
+    pub(super) session: Entity<Session>,
     sftp: Option<Sftp>,
     pub(super) cwd: String,
     pub(super) entries: Vec<SftpEntry>,
@@ -75,7 +77,8 @@ impl Shell {
         let Some(tab) = self.tabs.get(ix) else {
             return;
         };
-        let (tab_id, session) = (tab.id, tab.session().clone());
+        let session = tab.session().clone();
+        let session_id = session.entity_id();
         let Some(handle) = session.read(cx).ssh_handle() else {
             return self.notify_toast(
                 ToastKind::Critical,
@@ -96,7 +99,7 @@ impl Shell {
         let path = cx.new(|cx| TextInput::new("/".to_owned(), false, colors, cx));
         cx.observe(&path, |_, _, cx| cx.notify()).detach();
         self.panels.sftp = Some(SftpPanel {
-            tab: tab_id,
+            session,
             sftp: None,
             cwd: String::new(),
             entries: Vec::new(),
@@ -119,7 +122,12 @@ impl Shell {
                 Err(e) => Err(e.clone()),
             };
             let _ = this.update(cx, |s, cx| {
-                let Some(panel) = s.panels.sftp.as_mut().filter(|p| p.tab == tab_id) else {
+                let Some(panel) = s
+                    .panels
+                    .sftp
+                    .as_mut()
+                    .filter(|p| p.session.entity_id() == session_id)
+                else {
                     return;
                 };
                 match (opened, home) {

@@ -70,7 +70,7 @@ pub fn split_drop_hint(
 
 /// The pointer as fractions of a pane. `None` when the pane has no area, a value is
 /// non-finite, or the point falls outside 0..=1.
-fn pane_rel(
+pub(super) fn pane_rel(
     x: f32,
     y: f32,
     origin_x: f32,
@@ -106,12 +106,20 @@ struct SplitResize {
     axis: Axis,
 }
 
-/// Which half of a pane a dragged tab would split into.
+/// Which half of a pane a dragged tab or pane would split into.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SplitPreview {
     pub(super) tab: TabId,
     pub(super) pane: PaneId,
     pub(super) side: Side,
+}
+
+/// Whether `split_preview` came from a tab merge or a pane rearrange. The two drags share
+/// the overlay, and one must not keep the other's hint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PreviewKind {
+    TabMerge,
+    PaneRearrange,
 }
 
 /// `left`/`top` of `ratio` is the point as if the rule had no thickness. The rule starts
@@ -281,6 +289,7 @@ impl Shell {
     pub(super) fn clear_split_preview_without_drag(&mut self, cx: &App) {
         if self.split_preview.is_some() && !cx.has_active_drag() {
             self.split_preview = None;
+            self.split_preview_kind = None;
         }
     }
 
@@ -311,6 +320,12 @@ impl Shell {
         pane: PaneId,
         cx: &mut Context<Self>,
     ) {
+        // This listener is `DraggedTab` only. A leftover pane-rearrange hint is not a merge.
+        if self.split_preview_kind == Some(PreviewKind::PaneRearrange) {
+            self.split_preview = None;
+            self.split_preview_kind = None;
+            cx.notify();
+        }
         let source_ix = event.drag(cx).ix;
         let inside = pane_rel(
             f32::from(event.event.position.x),
@@ -334,8 +349,11 @@ impl Shell {
                 return;
             };
             let next = SplitPreview { tab, pane, side };
-            if self.split_preview != Some(next) {
+            if self.split_preview != Some(next)
+                || self.split_preview_kind != Some(PreviewKind::TabMerge)
+            {
                 self.split_preview = Some(next);
+                self.split_preview_kind = Some(PreviewKind::TabMerge);
                 cx.notify();
             }
             return;
@@ -345,6 +363,7 @@ impl Shell {
             .is_some_and(|preview| preview.pane == pane)
         {
             self.split_preview = None;
+            self.split_preview_kind = None;
             cx.notify();
         }
     }

@@ -10,7 +10,6 @@ use gpui::{
 };
 use tern_ssh::Forward;
 
-use super::broadcast_ui::TabId;
 use super::{Shell, ToastKind};
 use crate::forward_spec;
 use crate::keymap::{self, Keymap, ShortcutId};
@@ -28,7 +27,9 @@ pub(super) struct Panels {
 }
 
 pub(super) struct ForwardsPanel {
-    tab: TabId,
+    /// The session this panel was opened on. Adding a forward uses that session, not
+    /// whichever pane happens to be focused now.
+    session: Entity<Session>,
     position: Point<Pixels>,
     input: Entity<TextInput>,
     error: Option<String>,
@@ -57,7 +58,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab) = self.tabs.get(ix).map(|t| t.id) else {
+        let Some(session) = self.tabs.get(ix).map(|t| t.session().clone()) else {
             return;
         };
         let t = self.theme;
@@ -79,7 +80,7 @@ impl Shell {
         cx.observe(&input, |_, _, cx| cx.notify()).detach();
         window.focus(&input.focus_handle(cx), cx);
         self.panels.forwards = Some(ForwardsPanel {
-            tab,
+            session,
             position,
             input,
             error: None,
@@ -108,14 +109,14 @@ impl Shell {
                 return cx.notify();
             }
         };
-        let Some(session) = self
+        let session = panel.session.clone();
+        let open = self
             .tabs
             .iter()
-            .find(|t| t.id == panel.tab)
-            .map(|t| t.session().clone())
-        else {
+            .any(|tab| tab.panes.iter().any(|pane| pane.session == session));
+        if !open {
             return;
-        };
+        }
         if session.read(cx).status != Status::Connected {
             panel.error = Some("Not connected.".into());
             return cx.notify();
@@ -153,9 +154,8 @@ impl Shell {
     fn render_forwards_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let panel = self.panels.forwards.as_ref()?;
         let t = self.theme;
-        let tab = self.tabs.iter().find(|tab| tab.id == panel.tab)?;
-        let label = tab.strip_label();
-        let session = tab.session().clone();
+        let session = panel.session.clone();
+        let label = self.tab_for_session(&session)?.strip_label();
         let running = session.read(cx).active_forwards();
         let mut card = div()
             .id("forwards-panel")
@@ -279,6 +279,33 @@ impl Shell {
 // `session_fill.rs`.
 
 impl Shell {
+    /// The tab that still holds `session`, after a merge or a detach may have moved it.
+    pub(super) fn tab_for_session(&self, session: &Entity<Session>) -> Option<&super::Tab> {
+        self.tabs
+            .iter()
+            .find(|tab| tab.panes.iter().any(|pane| pane.session == *session))
+    }
+
+    /// Drops an SFTP or port-forward panel whose session is no longer in any tab.
+    pub(super) fn close_orphan_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let sftp_gone = self
+            .panels
+            .sftp
+            .as_ref()
+            .is_some_and(|panel| self.tab_for_session(&panel.session).is_none());
+        let forwards_gone = self
+            .panels
+            .forwards
+            .as_ref()
+            .is_some_and(|panel| self.tab_for_session(&panel.session).is_none());
+        if sftp_gone {
+            self.close_sftp(window, cx);
+        }
+        if forwards_gone {
+            self.close_forwards_panel(window, cx);
+        }
+    }
+
     /// ⌘\ (by default): fill the password into the focused pane, if it is at a prompt.
     pub(super) fn fill_password(&mut self, cx: &mut Context<Self>) {
         // A form or the Settings page has the keyboard; the pane behind it is not the target.

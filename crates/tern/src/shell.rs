@@ -59,6 +59,9 @@ mod menu;
 mod open;
 #[path = "shell_settings.rs"]
 mod settings_ui;
+#[path = "shell_split_detach.rs"]
+mod split_detach;
+pub(crate) use split_detach::DraggedPane;
 #[path = "shell_split_drag.rs"]
 mod split_drag;
 #[path = "shell_split_merge.rs"]
@@ -154,6 +157,8 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 panels: Default::default(),
                 active: 0,
                 split_preview: None,
+                split_preview_kind: None,
+                pane_insert: None,
                 error: None,
                 picker: None,
                 sidebar_tween: None,
@@ -245,8 +250,12 @@ pub struct Shell {
     broadcast_picker: Option<broadcast_ui::BroadcastPicker>,
     panels: forwards_ui::Panels,
     active: usize,
-    /// The pane half a dragged tab would split into, while the pointer is over it.
+    /// The pane half a dragged tab or pane would split into, while the pointer is over it.
     split_preview: Option<split_drag::SplitPreview>,
+    /// Which drag last wrote `split_preview`, so a tab merge and a pane rearrange do not share a hint.
+    split_preview_kind: Option<split_drag::PreviewKind>,
+    /// Where a pane dragged by its title would be inserted in the strip.
+    pane_insert: Option<split_detach::PaneInsertHint>,
     error: Option<String>,
     picker: Option<Picker>,
     sidebar_tween: Option<WidthTween>,
@@ -567,6 +576,7 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.clear_split_preview_without_drag(cx);
+        self.clear_pane_insert_without_drag(cx);
         // Whatever held focus can disappear (a field hidden after sync, a closed form or tab);
         // with nothing focused gpui dispatches no keys at all, so the window takes it back.
         if window.focused(cx).is_none() {
@@ -578,7 +588,8 @@ impl Render for Shell {
         let t = self.theme;
         let infos = self.tab_infos(cx);
         let active_alias = infos.get(self.active).map(|i| i.alias.clone());
-        let strip = tabs::strip(&infos, self.active, &self.tab_scroll, &t, cx);
+        let insert_at = self.pane_insert.map(|hint| hint.slot);
+        let strip = tabs::strip(&infos, self.active, &self.tab_scroll, insert_at, &t, cx);
         let query = self.search_query(cx);
         let sidebar = sidebar::render(
             &sidebar::SidebarState {

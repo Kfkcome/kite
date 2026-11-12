@@ -162,7 +162,6 @@ impl Node {
     /// Removes `pane` (same collapse as [`Self::remove`], so other ratios stay) and inserts it
     /// on `side` of `target`. False, and the tree unchanged, when `pane` is `target`, either
     /// id is missing, or it is the only pane.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn move_pane(&mut self, pane: PaneId, target: PaneId, side: Side) -> bool {
         if pane == target || !self.contains(pane) || !self.contains(target) {
             return false;
