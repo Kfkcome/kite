@@ -1,7 +1,6 @@
 //! A split pane's title bar, and dragging that bar: onto the strip to detach the pane into its
 //! own tab, or onto a sibling pane of the same tab to rearrange it.
 
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, DragMoveEvent, Hsla, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
@@ -42,16 +41,19 @@ impl Render for DraggedPane {
 }
 
 impl Shell {
-    /// The thin host bar above one pane of a split. A lone pane draws none.
+    /// The host line above one pane of a split. A lone pane draws none.
+    /// `label` is `user@host:port`; the drag ghost keeps the short alias.
     pub(super) fn pane_title_bar(
         &self,
         tab: TabId,
         pane: PaneId,
         alias: &str,
+        label: &str,
         focused: bool,
         _cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = self.theme;
+        let term = self.terminal_theme(alias);
         let dragged = DraggedPane {
             tab,
             pane,
@@ -61,26 +63,23 @@ impl Shell {
         };
         div()
             .id(("pane-title", pane))
-            .h(px(18.))
-            .px(px(6.))
+            .h(px(22.))
+            .px(px(10.))
             .flex_none()
             .flex()
             .items_center()
             .min_w_0()
-            .text_size(px(11.))
+            .bg(term.background.opacity(term.background_alpha))
+            .text_size(px(12.))
             .cursor_pointer()
-            .border_b_1()
-            .when(focused, |el| el.text_color(t.accent).border_color(t.accent))
-            .when(!focused, |el| {
-                el.text_color(t.muted).border_color(t.hairline)
-            })
+            .text_color(if focused { t.text } else { t.muted })
             // The drag starts here, not on the terminal, so selecting text still works.
             .on_drag(dragged, |pane, _, _, cx| cx.new(|_| pane.clone()))
             .child(
                 div()
                     .min_w_0()
                     .truncate()
-                    .child(SharedString::from(alias.to_owned())),
+                    .child(SharedString::from(label.to_owned())),
             )
             .into_any_element()
     }

@@ -9,7 +9,7 @@ use crate::tabs::DraggedTab;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, DragMoveEvent, Focusable, InteractiveElement, IntoElement, ParentElement,
-    Styled, Window, div, px, transparent_black,
+    Styled, Window, div, px,
 };
 use tern_ssh::{ConnectSpec, HostEntry};
 
@@ -354,7 +354,6 @@ impl Shell {
         split: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let t = self.theme;
         match node {
             Node::Leaf(id) => {
                 let Some(pane) = tab.panes.iter().find(|p| p.id == *id) else {
@@ -364,24 +363,22 @@ impl Shell {
                 let tab_id = tab.id;
                 let focused = tab.focused == id;
                 let alias = pane.alias.clone();
-                let view = pane.session.read(cx).view.clone();
+                let (label, view) = {
+                    let session = pane.session.read(cx);
+                    (session.label(), session.view.clone())
+                };
                 div()
                     .id(("pane", id))
                     .relative()
                     .size_full()
-                    // Only a split tab marks its focus; a lone pane would just wear a frame.
-                    .when(split, |el| {
-                        el.flex().flex_col().border_1().border_color(if focused {
-                            t.accent.opacity(0.55)
-                        } else {
-                            transparent_black()
-                        })
-                    })
+                    // A split stacks a header over the terminal. No frame: a box around
+                    // every pane stacks with the seam and reads as a thick border.
+                    .when(split, |el| el.flex().flex_col())
                     // Before the terminal sees the click, so selecting text in a pane also
                     // gives it the keyboard. The title bar is inside this hitbox.
                     .capture_any_mouse_down(cx.listener(move |s, _, w, cx| s.focus_pane(id, w, cx)))
                     .when(split, |el| {
-                        el.child(self.pane_title_bar(tab_id, id, &alias, focused, cx))
+                        el.child(self.pane_title_bar(tab_id, id, &alias, &label, focused, cx))
                     })
                     .child(if split {
                         div()

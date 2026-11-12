@@ -173,7 +173,8 @@ impl Shell {
             .flex()
             .when(axis == Axis::Column, |el| el.flex_col())
             .child(side(ratio, a))
-            .child(rule(axis, self.theme.border))
+            // A 1px hairline, light enough to read on the wallpaper without framing the pane.
+            .child(rule(axis, self.theme.text.opacity(0.5)))
             .child(side(1.0 - ratio, b));
         let first_leaves = first.leaves();
         let second_leaves = second.leaves();
