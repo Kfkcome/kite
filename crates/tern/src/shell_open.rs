@@ -356,6 +356,7 @@ impl Shell {
                 axis,
                 first,
                 second,
+                ..
             } => {
                 let half = |el: gpui::Div| el.flex_1().min_w(px(0.)).min_h(px(0.));
                 let a = self.render_node(tab, first, split, cx);
