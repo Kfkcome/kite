@@ -99,6 +99,11 @@ pub fn render_titlebar(
         .flex()
         .items_center()
         .gap(px(SPACE_SM))
+        // Presses that reach the bar move the window. Tab pills and the two
+        // buttons stop the mouse-down, so those stay clicks. The empty tail
+        // after the pills is inside the tab strip, which shares the row with
+        // the drag strip, and AppKit will not move this window unless asked.
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
         .child(
             div()
                 .flex()
@@ -124,12 +129,12 @@ pub fn render_titlebar(
         .child(tabs)
         .child(
             div()
-                // The drag strip keeps a grab area even when the tabs fill the bar.
+                // Keeps a grab area once the pills fill the bar. The mouse-down
+                // handler lives on the bar, so this strip is not a second drag.
                 .flex_1()
                 .min_w(px(48.))
                 .h_full()
-                .window_control_area(WindowControlArea::Drag)
-                .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
+                .window_control_area(WindowControlArea::Drag),
         )
 }
 
