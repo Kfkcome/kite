@@ -154,7 +154,7 @@ impl Shell {
         let panel = self.panels.forwards.as_ref()?;
         let t = self.theme;
         let tab = self.tabs.iter().find(|tab| tab.id == panel.tab)?;
-        let label = tab.title.clone().unwrap_or_else(|| tab.alias.clone());
+        let label = tab.strip_label();
         let session = tab.session().clone();
         let running = session.read(cx).active_forwards();
         let mut card = div()

@@ -103,12 +103,14 @@ pub fn render(
     let inner = s.width - 61.;
     let one = |scope: &'static str, ix: usize, top: bool, cx: &mut Context<Shell>| {
         let host = &s.hosts[ix];
-        let status = s
-            .open
-            .iter()
-            .rev()
-            .find(|tab| tab.alias == host.alias)
-            .map(|tab| tab.dot);
+        // Last match, as before: a host open in several panes keeps the latest pane's dot.
+        let status = s.open.iter().rev().find_map(|tab| {
+            tab.hosts
+                .iter()
+                .rev()
+                .find(|(alias, _)| alias == &host.alias)
+                .map(|(_, dot)| *dot)
+        });
         let active = s.active_alias == Some(host.alias.as_str());
         row(scope, ix, host, status, active, top, inner, t, cx)
     };
@@ -387,7 +389,7 @@ fn row(
         )
         .when(active || top, |el| el.bg(t.ink(0.11)))
         .on_click(cx.listener(move |shell, _, window, cx| {
-            shell.connect_host(target.clone(), window, cx);
+            shell.connect_host(&target, window, cx);
         }))
         .on_mouse_down(
             MouseButton::Right,

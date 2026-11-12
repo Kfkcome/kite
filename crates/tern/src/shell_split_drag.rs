@@ -2,7 +2,8 @@
 //! rule and sits above the terminals; a nested split does not move its ancestor.
 //!
 //! Dragging a single-pane tab over another tab previews the half of the pane under the pointer.
-//! Leaving that pane, or ending the drag, clears the preview. Nothing is merged.
+//! Dropping there moves that pane into the tab (see `split_merge`). Leaving the pane, or ending
+//! the drag anywhere else, clears the preview.
 
 use gpui::prelude::FluentBuilder;
 use gpui::{

@@ -16,21 +16,28 @@ use tern_ssh::{ConnectSpec, HostEntry};
 use super::*;
 
 impl Shell {
-    /// Switches to the host's tab if it has one, reconnecting it when closed; otherwise opens
-    /// a new tab.
-    pub fn connect_host(&mut self, host: HostEntry, window: &mut Window, cx: &mut Context<Self>) {
+    /// Focuses the host's existing pane when one is open — the first, in tab order, then
+    /// pane order — and reconnects it when dormant. Otherwise opens a new tab.
+    pub fn connect_host(&mut self, host: &HostEntry, window: &mut Window, cx: &mut Context<Self>) {
         self.record_recent(&host.alias);
-        if let Some(ix) = self.tabs.iter().position(|tab| tab.alias == host.alias) {
-            let session = self.tabs[ix].session().clone();
-            session.update(cx, |s, cx| {
-                if s.status.is_dormant() {
-                    s.reconnect(cx);
-                }
+        if let Some((ix, pane_id)) = self.locate_host(&host.alias) {
+            let session = self.tabs.get(ix).and_then(|tab| {
+                tab.panes
+                    .iter()
+                    .find(|pane| pane.id == pane_id)
+                    .map(|pane| pane.session.clone())
             });
-            return self.show_tab(ix, window, cx);
+            if let Some(session) = session {
+                session.update(cx, |session, cx| {
+                    if session.status.is_dormant() {
+                        session.reconnect(cx);
+                    }
+                });
+            }
+            return self.show_pane(ix, pane_id, window, cx);
         }
-        match ConnectSpec::from_host_entry(&host) {
-            Ok(spec) => self.open_tab(Launch::Ssh(spec), host.alias, window, cx),
+        match ConnectSpec::from_host_entry(host) {
+            Ok(spec) => self.open_tab(Launch::Ssh(spec), &host.alias, window, cx),
             Err(e) => self.fail(e.to_string(), cx),
         }
     }
@@ -40,10 +47,10 @@ impl Shell {
         // A saved connection's name wins, so `tern web-01` and the picker's typed name open the
         // same host (with its password command, jump host and group) as clicking it does.
         if let Some(host) = self.hosts.iter().find(|h| h.alias == target).cloned() {
-            return self.connect_host(host, window, cx);
+            return self.connect_host(&host, window, cx);
         }
         match ConnectSpec::parse(target) {
-            Ok(spec) => self.open_tab(Launch::Ssh(spec), target.to_string(), window, cx),
+            Ok(spec) => self.open_tab(Launch::Ssh(spec), target, window, cx),
             Err(e) => self.fail(e.to_string(), cx),
         }
     }
@@ -51,15 +58,14 @@ impl Shell {
     pub(super) fn open_tab(
         &mut self,
         launch: Launch,
-        alias: String,
+        alias: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let pane = self.make_pane(launch, &alias, window, cx);
+        let pane = self.make_pane(launch, alias, window, cx);
         self.next_tab += 1;
         self.tabs.push(Tab {
             id: self.next_tab,
-            alias,
             title: None,
             tree: split::Node::Leaf(pane.id),
             focused: pane.id,
@@ -109,19 +115,22 @@ impl Shell {
             cx.observe(&session, move |shell, session, cx| {
                 let status = session.read(cx).status.clone();
                 if status == Status::Closed && last != Status::Closed {
-                    let ix = shell
-                        .tabs
-                        .iter()
-                        .position(|t| t.panes.iter().any(|p| p.session == session));
-                    if let Some(ix) =
-                        ix.filter(|ix| *ix != shell.active || shell.settings_page.is_some())
+                    let hit = shell.tabs.iter().enumerate().find_map(|(ix, tab)| {
+                        tab.panes.iter().find_map(|pane| {
+                            (pane.session == session).then(|| (ix, pane.id, pane.alias.clone()))
+                        })
+                    });
+                    if let Some((_, pane_id, alias)) = hit
+                        .filter(|(ix, _, _)| *ix != shell.active || shell.settings_page.is_some())
                     {
-                        let alias = shell.tabs[ix].alias.clone();
                         shell.toast(
                             Toast::new(ToastKind::Critical, format!("{alias} disconnected"))
-                                .action("Show", move |s, window, cx| {
-                                    if let Some(ix) = s.tabs.iter().position(|t| t.alias == alias) {
-                                        s.show_tab(ix, window, cx);
+                                .action("Show", move |shell, window, cx| {
+                                    // The pane may have moved to another slot since this toast.
+                                    if let Some(ix) = shell.tabs.iter().position(|tab| {
+                                        tab.panes.iter().any(|pane| pane.id == pane_id)
+                                    }) {
+                                        shell.show_pane(ix, pane_id, window, cx);
                                     }
                                 }),
                             cx,
@@ -140,6 +149,7 @@ impl Shell {
         self.next_pane += 1;
         Pane {
             id: self.next_pane,
+            alias: alias.to_owned(),
             session,
             _repaint: repaint,
             _bell: bell,
@@ -169,6 +179,16 @@ impl Shell {
     pub fn show_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.settings_page = None;
         self.activate_tab(ix, window, cx);
+    }
+
+    /// Focuses `pane` when it is still in that tab's tree, then shows the tab.
+    fn show_pane(&mut self, ix: usize, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(tab) = self.tabs.get_mut(ix)
+            && tab.tree.contains(pane)
+        {
+            tab.focused = pane;
+        }
+        self.show_tab(ix, window, cx);
     }
 
     /// Closing a tab drops its session, which ends the connection.
@@ -233,7 +253,7 @@ impl Shell {
             return;
         };
         let launch = tab.session().read(cx).launch_again();
-        let alias = tab.alias.clone();
+        let alias = tab.focused_alias().to_owned();
         let (target, ix) = (tab.focused, self.active);
         let pane = self.make_pane(launch, &alias, window, cx);
         let id = pane.id;
@@ -359,6 +379,9 @@ impl Shell {
                             shell.on_tab_drag_over_pane(event, tab_id, id, cx);
                         },
                     ))
+                    .on_drop(cx.listener(move |shell, from: &DraggedTab, window, cx| {
+                        shell.accept_tab_drop(from, tab_id, id, window, cx);
+                    }))
                     .into_any_element()
             }
             Node::Split {

@@ -53,13 +53,17 @@ pub fn bindings() -> Vec<KeyBinding> {
 
 /// What the strip needs to know about one tab.
 pub struct TabInfo {
+    /// Focused pane's host. On the front tab, the sidebar marks this host active.
     pub alias: String,
-    /// The name the user gave the tab; it shows instead of the alias.
-    pub title: Option<String>,
+    /// Each pane's host and status, in pane order.
+    pub hosts: Vec<(String, Dot)>,
+    /// Resolved strip text.
+    pub strip_label: String,
     /// The session's output is being written to a file.
     pub logging: bool,
     /// Typing here, or receiving what is typed in another tab.
     pub broadcast: bool,
+    /// Focused pane's status.
     pub dot: Dot,
     /// The field that is editing this tab's title right now.
     pub rename: Option<Entity<TextInput>>,
@@ -67,7 +71,7 @@ pub struct TabInfo {
 
 impl TabInfo {
     pub fn label(&self) -> &str {
-        self.title.as_deref().unwrap_or(&self.alias)
+        &self.strip_label
     }
 }
 

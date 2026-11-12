@@ -184,7 +184,7 @@ impl Shell {
                     .map(|&ix| self.hosts()[ix].clone());
                 self.close_picker(window, cx);
                 match chosen {
-                    Some(host) => self.connect_host(host, window, cx),
+                    Some(host) => self.connect_host(&host, window, cx),
                     // Nothing listed matches: treat the text as a target, so `user@host:port`
                     // and `~/.ssh/config` aliases that were never imported still connect.
                     None if !query.trim().is_empty() => {
@@ -238,7 +238,7 @@ pub fn render(
             .when(row == active, |el| el.bg(t.row_active))
             .on_click(cx.listener(move |shell, _, window, cx| {
                 shell.close_picker(window, cx);
-                shell.connect_host(target.clone(), window, cx);
+                shell.connect_host(&target, window, cx);
             }))
             .child(
                 div()

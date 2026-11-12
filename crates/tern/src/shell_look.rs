@@ -86,7 +86,7 @@ impl Shell {
     pub(super) fn restyle_tabs(&self, cx: &mut Context<Self>) {
         for tab in &self.tabs {
             for pane in &tab.panes {
-                let theme = self.terminal_theme(&tab.alias);
+                let theme = self.terminal_theme(&pane.alias);
                 let view = pane.session.read(cx).view.clone();
                 view.update(cx, |v, cx| v.set_theme(theme, cx));
             }
@@ -105,7 +105,7 @@ impl Shell {
     /// Background of the main panel: the active tab's scheme, so no seam shows around it.
     pub(super) fn panel_background(&self) -> gpui::Hsla {
         match self.tabs.get(self.active) {
-            Some(tab) => self.terminal_theme(&tab.alias).background,
+            Some(tab) => self.terminal_theme(tab.focused_alias()).background,
             None => self.theme.terminal_background,
         }
     }

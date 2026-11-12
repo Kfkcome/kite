@@ -15,12 +15,11 @@ use tern_ssh::HostEntry;
 
 use crate::chrome::{self, DragGhost, SidebarResize, WidthTween};
 use crate::connections::{self, Connection};
-use crate::indicator::Dot;
 use crate::picker::{self, Picker, ToggleHostPicker};
 use crate::session::{Launch, Session, Status};
 use crate::settings::{self, SIDEBAR_DEFAULT, Settings};
 use crate::split::{self, PaneId};
-use crate::tabs::{self, ActivateTab, CloseTab, NextTab, PrevTab, TabInfo};
+use crate::tabs::{self, ActivateTab, CloseTab, NextTab, PrevTab};
 use crate::theme::{Theme, UI_FONT};
 use crate::{sidebar, statusline};
 
@@ -62,6 +61,8 @@ mod open;
 mod settings_ui;
 #[path = "shell_split_drag.rs"]
 mod split_drag;
+#[path = "shell_split_merge.rs"]
+mod split_merge;
 #[path = "shell_sync.rs"]
 mod sync_ui;
 #[path = "shell_tabs.rs"]
@@ -284,9 +285,11 @@ fn with_dev_known_hosts(spec: ConnectSpec) -> ConnectSpec {
     }
 }
 
-/// One terminal in a tab: a connection.
+/// One terminal in a tab: a connection, and the host it was opened as.
 struct Pane {
     id: PaneId,
+    /// A tab can hold panes from different hosts, so the host lives here.
+    alias: String,
     session: Entity<Session>,
     _repaint: Subscription,
     _bell: Subscription,
@@ -295,7 +298,6 @@ struct Pane {
 
 struct Tab {
     id: broadcast_ui::TabId,
-    alias: String,
     /// The user's name for the tab. It belongs to the tab, not the session, so a reconnect
     /// keeps it.
     title: Option<String>,
@@ -306,7 +308,7 @@ struct Tab {
 }
 
 impl Tab {
-    /// The focused pane's session: what the strip shows and what typing reaches.
+    /// The focused pane's session: what typing reaches, and what the strip's dot follows.
     fn session(&self) -> &Entity<Session> {
         match self.panes.iter().find(|p| p.id == self.focused) {
             Some(pane) => &pane.session,
@@ -460,28 +462,6 @@ impl Shell {
         tracing::warn!(error = %error, "connect_target_invalid");
         self.error = Some(error);
         cx.notify();
-    }
-
-    fn tab_infos(&self, cx: &App) -> Vec<TabInfo> {
-        self.tabs
-            .iter()
-            .enumerate()
-            .map(|(ix, tab)| TabInfo {
-                alias: tab.alias.clone(),
-                title: tab.title.clone(),
-                logging: tab.session().read(cx).is_logging(),
-                broadcast: self.is_broadcasting(tab.id),
-                dot: {
-                    let s = tab.session().read(cx);
-                    Dot::of(&s.status, s.is_asking())
-                },
-                rename: self
-                    .renaming
-                    .as_ref()
-                    .filter(|r| r.ix == ix)
-                    .map(|r| r.input.clone()),
-            })
-            .collect()
     }
 
     /// The main panel's content: the active tab's panes, or the empty view, which carries the

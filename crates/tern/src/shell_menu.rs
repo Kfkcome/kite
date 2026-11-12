@@ -70,7 +70,7 @@ impl Shell {
         let alias = host.alias.clone();
         let connect = host.clone();
         let mut items = vec![action(icons::TERMINAL, "Connect", move |s, w, cx| {
-            s.connect_host(connect.clone(), w, cx)
+            s.connect_host(&connect, w, cx)
         })];
         let fresh = host.clone();
         items.push(action(icons::PLUS, "Open in new tab", move |s, w, cx| {
@@ -105,16 +105,22 @@ impl Shell {
         let Some(tab) = self.tabs.get(ix) else {
             return;
         };
-        let alias = tab.alias.clone();
+        let alias = tab.focused_alias().to_owned();
+        let focused = tab.focused;
         let closed = tab.session().read(cx).status.is_dormant();
         let logging = tab.session().read(cx).is_logging();
         let broadcasting = self.is_broadcasting(tab.id);
         let mut items = Vec::new();
         if closed {
             items.push(action(icons::RESTART, "Reconnect", move |s, w, cx| {
-                if let Some(tab) = s.tabs.get(ix) {
-                    let session = tab.session().clone();
-                    session.update(cx, |s, cx| s.reconnect(cx));
+                if let Some(tab) = s.tabs.get(ix)
+                    && let Some(session) = tab
+                        .panes
+                        .iter()
+                        .find(|pane| pane.id == focused)
+                        .map(|pane| pane.session.clone())
+                {
+                    session.update(cx, |session, cx| session.reconnect(cx));
                 }
                 s.show_tab(ix, w, cx);
             }));
@@ -200,7 +206,7 @@ impl Shell {
     /// A second session to the same host, even when one is already open.
     fn open_new_tab(&mut self, host: &HostEntry, window: &mut Window, cx: &mut Context<Self>) {
         match ConnectSpec::from_host_entry(host) {
-            Ok(spec) => self.open_tab(super::Launch::Ssh(spec), host.alias.clone(), window, cx),
+            Ok(spec) => self.open_tab(super::Launch::Ssh(spec), &host.alias, window, cx),
             Err(e) => self.notify_toast(super::ToastKind::Critical, e.to_string(), cx),
         }
     }

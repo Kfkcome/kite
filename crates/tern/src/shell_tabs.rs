@@ -25,7 +25,8 @@ impl Shell {
         let Some(tab) = self.tabs.get(ix) else {
             return;
         };
-        let current = tab.title.clone().unwrap_or_else(|| tab.alias.clone());
+        let current = tab.strip_label();
+        let baseline = tab.generated_label();
         let t = self.theme;
         let colors = InputColors {
             text: t.text,
@@ -34,7 +35,7 @@ impl Shell {
             selection: t.accent.opacity(0.35),
         };
         let input = cx.new(|cx| {
-            let mut input = TextInput::new(tab.alias.clone(), false, colors, cx);
+            let mut input = TextInput::new(baseline, false, colors, cx);
             input.set_text(current, cx);
             input.select_everything(cx);
             input
@@ -51,7 +52,10 @@ impl Shell {
         };
         let typed = rename.input.read(cx).text().trim().to_owned();
         if let Some(tab) = self.tabs.get_mut(rename.ix) {
-            tab.title = custom_title(&typed, &tab.alias);
+            // Unchanged means the generated strip text, so committing "prod · 2" does not
+            // store that count as a custom title.
+            let baseline = tab.generated_label();
+            tab.title = custom_title(&typed, &baseline);
         }
         self.persist_tabs();
         self.restore_focus(window, cx);
@@ -164,8 +168,10 @@ impl Shell {
                 .tabs
                 .iter()
                 .map(|tab| SavedTab {
+                    // Temporary until step 6 saves the tree. A multi-host tab records only the
+                    // focused pane's host, so the other panes are not restored on the next launch.
                     kind: SavedKind::Ssh {
-                        alias: tab.alias.clone(),
+                        alias: tab.focused_alias().to_owned(),
                     },
                     title: tab.title.clone(),
                 })
@@ -210,7 +216,7 @@ impl Shell {
         };
         match spec {
             Ok(spec) => {
-                self.open_tab(Launch::SshIdle(spec), alias.to_owned(), window, cx);
+                self.open_tab(Launch::SshIdle(spec), alias, window, cx);
                 true
             }
             Err(e) => {

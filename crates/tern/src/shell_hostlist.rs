@@ -89,7 +89,7 @@ impl Shell {
                 let top = sidebar::search(&query, &self.connections).first().copied();
                 if let Some(host) = top.and_then(|ix| self.hosts.get(ix).cloned()) {
                     self.clear_search(cx);
-                    self.connect_host(host, window, cx);
+                    self.connect_host(&host, window, cx);
                 }
             }
             _ => return,

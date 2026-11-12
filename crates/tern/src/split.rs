@@ -101,7 +101,6 @@ impl Node {
 
     /// Replaces leaf `target` with an even split that puts `new` on `side`. False when
     /// `target` is missing or `new` is already in the tree.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn insert(&mut self, target: PaneId, side: Side, new: PaneId) -> bool {
         if self.contains(new) {
             return false;
