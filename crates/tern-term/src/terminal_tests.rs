@@ -77,6 +77,29 @@ fn app_cursor_mode_toggles() {
 }
 
 #[test]
+fn release_remote_modes_stops_mouse_tracking_and_keeps_the_grid() {
+    let mut t = term(40, 8);
+    t.process(b"hello");
+    t.process(b"\x1b[?1003h\x1b[?1006h\x1b[?2004h\x1b[?1h\x1b[?1049h");
+    t.process(b"alt");
+    assert!(
+        t.mode()
+            .contains(TermMode::MOUSE_MOTION | TermMode::SGR_MOUSE)
+    );
+    assert!(t.mode().contains(TermMode::ALT_SCREEN));
+    t.release_remote_modes();
+    assert!(!t.mode().intersects(
+        TermMode::MOUSE_MODE
+            | TermMode::SGR_MOUSE
+            | TermMode::UTF8_MOUSE
+            | TermMode::BRACKETED_PASTE
+            | TermMode::APP_CURSOR
+            | TermMode::ALT_SCREEN
+    ));
+    assert_eq!(t.row_text(0), "hello");
+}
+
+#[test]
 fn resize_changes_grid_and_remote_callback_reports_pixels() {
     let mut t = term(20, 5);
     assert!(!t.resize(20, 5, 8.0, 16.0));

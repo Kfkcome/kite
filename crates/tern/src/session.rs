@@ -336,6 +336,9 @@ impl Session {
 
     pub fn reconnect(&mut self, cx: &mut Context<Self>) {
         self.retry = None;
+        // The last program's modes live in this terminal. The new shell never
+        // turns mouse tracking off, so a move would be typed in as a report.
+        self.release_remote_modes(cx);
         // A restored tab shows only its "Press Enter to connect" hint; clear it rather than leave
         // it above the login banner.
         if self.status == Status::Idle {
@@ -609,6 +612,13 @@ impl Session {
 
     fn show(&self, bytes: &[u8], cx: &mut Context<Self>) {
         self.terminal.update(cx, |t, cx| t.feed(bytes, cx));
+    }
+
+    fn release_remote_modes(&mut self, cx: &mut Context<Self>) {
+        self.terminal.update(cx, |terminal, cx| {
+            terminal.release_remote_modes();
+            cx.notify();
+        });
     }
 
     /// tern is asking, or finishing what an answer started, so remote output waits.

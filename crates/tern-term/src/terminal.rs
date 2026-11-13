@@ -39,6 +39,17 @@ const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
 /// Scrollback history kept client-side (lines).
 pub const SCROLLBACK_LINES: usize = 10_000;
 
+/// Private modes a program can turn on. A dropped connection never delivers the
+/// matching reset, so the next program would inherit them: mouse motion is then
+/// typed into the shell as an SGR report (`35;col;rowM`). CAN (`0x18`) aborts a
+/// half-parsed sequence first. The grid is not cleared.
+const REMOTE_MODES_OFF: &[u8] = b"\x18\
+\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\
+\x1b[?1004l\x1b[?2004l\x1b[?1l\x1b[?6l\
+\x1b[4l\x1b[20l\x1b>\
+\x1b[?1049l\x1b[r\x1b(B\
+\x1b[?25h\x1b[?7h";
+
 /// Emitted by [`Terminal`] (it is an `EventEmitter`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TerminalEvent {
@@ -384,6 +395,12 @@ impl Terminal {
 
     pub fn mode(&self) -> TermMode {
         *self.term.mode()
+    }
+
+    /// The program that set mouse tracking, the alternate screen, and the other
+    /// private modes is gone. Drop those modes and stay on the visible grid.
+    pub fn release_remote_modes(&mut self) {
+        let _ = self.process(REMOTE_MODES_OFF);
     }
 
     /// Lines scrolled back into history (0 = pinned to the live bottom).
