@@ -13,6 +13,7 @@ use gpui::{
 };
 
 use super::Shell;
+use crate::i18n::{fill, tr};
 use crate::picker::{Key, classify, rank_labels};
 use crate::theme::hex;
 use crate::theme::themes::{self, Scheme};
@@ -34,7 +35,7 @@ enum Choice {
 impl Choice {
     fn label(self, light: bool) -> String {
         match self {
-            Choice::FollowDefault => "Use the default theme".into(),
+            Choice::FollowDefault => tr("Use the default theme").into(),
             Choice::Zeron => themes::default_name(light).into(),
             Choice::Scheme(s) => s.name.clone(),
         }
@@ -221,8 +222,8 @@ impl Shell {
         let matches = self.matches();
         let active = p.active.min(matches.len().saturating_sub(1));
         let title = match &p.target {
-            ThemeTarget::Default => "Default terminal theme".to_owned(),
-            ThemeTarget::Host(alias) => format!("Theme for {alias}"),
+            ThemeTarget::Default => tr("Default terminal theme").to_owned(),
+            ThemeTarget::Host(alias) => fill("Theme for {}", &[alias.as_str()]),
         };
         let rows = matches.iter().enumerate().map(|(row, choice)| {
             let choice = *choice;
@@ -261,7 +262,7 @@ impl Shell {
                 )
         });
         let query: SharedString = if p.query.is_empty() {
-            format!("Search {} themes…", themes::all().len()).into()
+            fill("Search {} themes…", &[&themes::all().len().to_string()]).into()
         } else {
             p.query.clone().into()
         };
@@ -321,7 +322,7 @@ impl Shell {
                     .border_color(t.hairline)
                     .text_size(px(10.))
                     .text_color(t.muted)
-                    .child("↑ ↓ preview · ↵ keep · Esc revert"),
+                    .child(tr("↑ ↓ preview · ↵ keep · Esc revert")),
             );
         Some(
             deferred(

@@ -47,10 +47,33 @@ impl AppearanceMode {
     }
 }
 
+/// Which language the interface uses. `System` follows the first language macOS lists.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Language {
+    #[default]
+    System,
+    English,
+    Chinese,
+}
+
+impl Language {
+    /// Whether Chinese applies, given whether the system prefers it.
+    pub fn is_chinese(self, system_chinese: bool) -> bool {
+        match self {
+            Self::System => system_chinese,
+            Self::English => false,
+            Self::Chinese => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     pub appearance: AppearanceMode,
+    /// Interface language. Missing from older files, which then follow the system.
+    pub language: Language,
     /// The strip under the terminal: host, state, session time.
     pub show_status_line: bool,
     /// On a standard-density (1x) display: whole-pixel sizes, 1 px icon strokes, an opaque
@@ -132,6 +155,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             appearance: AppearanceMode::System,
+            language: Language::System,
             show_status_line: true,
             sharp_text: true,
             sidebar_width: SIDEBAR_DEFAULT,
@@ -406,6 +430,7 @@ mod tests {
         let dir = temp_dir("roundtrip");
         let saved = Settings {
             appearance: AppearanceMode::Light,
+            language: Language::Chinese,
             show_status_line: false,
             sharp_text: false,
             sidebar_width: 312.0,
@@ -536,12 +561,22 @@ mod tests {
     }
 
     #[test]
+    fn language_follows_the_system_only_when_set_to_system() {
+        for system_chinese in [true, false] {
+            assert_eq!(Language::System.is_chinese(system_chinese), system_chinese);
+            assert!(!Language::English.is_chinese(system_chinese));
+            assert!(Language::Chinese.is_chinese(system_chinese));
+        }
+    }
+
+    #[test]
     fn an_older_file_gets_system_appearance_and_the_status_line() {
         let dir = temp_dir("appearance");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(FILE_NAME), r#"{"sidebarWidth":300}"#).unwrap();
         let loaded = Settings::load(&dir);
         assert_eq!(loaded.appearance, AppearanceMode::System);
+        assert_eq!(loaded.language, Language::System);
         assert!(loaded.show_status_line);
         assert!(
             loaded.sharp_text,

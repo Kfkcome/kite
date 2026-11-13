@@ -15,12 +15,13 @@ use tern_ssh::HostEntry;
 
 use crate::chrome::{self, DragGhost, SidebarResize, WidthTween};
 use crate::connections::{self, Connection};
+use crate::i18n::tr;
 use crate::picker::{self, Picker, ToggleHostPicker};
 use crate::session::{Launch, Session, Status};
 use crate::settings::{self, SIDEBAR_DEFAULT, Settings};
 use crate::split::{self, PaneId};
 use crate::tabs::{self, ActivateTab, CloseTab, NextTab, PrevTab};
-use crate::theme::{Theme, UI_FONT};
+use crate::theme::Theme;
 use crate::{sidebar, statusline};
 
 actions!(
@@ -195,6 +196,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
         cx.observe_window_activation(window, |shell, window, cx| {
             crate::platform::apply_reduce_motion(shell.settings.reduce_motion, cx);
             if window.is_window_active() {
+                shell.apply_language(cx);
                 for pane in shell.tabs.iter().flat_map(|t| &t.panes) {
                     pane.session.update(cx, |s, cx| s.nudge(cx));
                 }
@@ -203,6 +205,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
         .detach();
         shell.system_light = is_light(window.appearance());
         shell.apply_appearance(cx);
+        shell.apply_language(cx);
         shell.install_input_colors(cx);
         shell.start_clock(cx);
         cx.observe_window_appearance(window, |shell, window, cx| {
@@ -546,15 +549,18 @@ impl Shell {
                         .flex()
                         .gap(px(8.))
                         .child(
-                            connections_ui::button("empty-main-new", "New connection", true, &t)
-                                .on_click(
-                                    cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx)),
-                                ),
+                            connections_ui::button(
+                                "empty-main-new",
+                                tr("New connection"),
+                                true,
+                                &t,
+                            )
+                            .on_click(cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx))),
                         )
                         .child(
                             connections_ui::button(
                                 "empty-main-import",
-                                "Import from ~/.ssh/config…",
+                                tr("Import from ~/.ssh/config…"),
                                 false,
                                 &t,
                             )
@@ -571,9 +577,9 @@ impl Shell {
                     .child(hint(crate::keymap::ShortcutId::HostPicker, "Find a host"))
                     .child(hint(
                         crate::keymap::ShortcutId::NewConnection,
-                        "New connection",
+                        tr("New connection"),
                     ))
-                    .child(hint(crate::keymap::ShortcutId::Settings, "Settings")),
+                    .child(hint(crate::keymap::ShortcutId::Settings, tr("Settings"))),
             )
             .into_any_element()
     }
@@ -647,7 +653,7 @@ impl Render for Shell {
             .flex_col()
             .bg(self.window_base())
             .children(layers)
-            .font_family(UI_FONT)
+            .font(crate::theme::ui_font())
             .text_color(t.text)
             .on_action(cx.listener(|s, _: &CloseTab, w, cx| s.close_pane_or_tab(w, cx)))
             .on_action(

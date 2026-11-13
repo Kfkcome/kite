@@ -16,6 +16,7 @@ use super::connections_ui::{button, note, row};
 use super::settings_ui::Section;
 use super::{Shell, ToastKind};
 use crate::empty_state::{self, Listing};
+use crate::i18n::{fill, tr};
 use crate::picker::{self, Key};
 use crate::settings_widgets as w;
 use crate::snippets::{self, Snippet};
@@ -78,7 +79,11 @@ impl Shell {
         }
         let active_session = self.tabs.get(self.active).is_some() && self.settings_page.is_none();
         if !active_session {
-            return self.notify_toast(ToastKind::Default, "Open a session to use a snippet", cx);
+            return self.notify_toast(
+                ToastKind::Default,
+                tr("Open a session to use a snippet"),
+                cx,
+            );
         }
         self.picker = None;
         let focus = cx.focus_handle();
@@ -127,7 +132,7 @@ impl Shell {
         if !sent {
             self.notify_toast(
                 ToastKind::Critical,
-                "The session is not connected, so nothing was typed",
+                tr("The session is not connected, so nothing was typed"),
                 cx,
             );
         }
@@ -224,7 +229,7 @@ impl Shell {
                 )
         });
         let query: SharedString = if p.query.is_empty() {
-            "Insert a snippet…".into()
+            tr("Insert a snippet…").into()
         } else {
             p.query.clone().into()
         };
@@ -287,24 +292,28 @@ impl Shell {
                         {
                             return el.child(
                                 div().py(px(24.)).child(
-                                    empty_state::view(t, empty_state::SNIPPETS, "No snippets yet.")
-                                        .gap(px(12.))
-                                        .child(
-                                            button(
-                                                "snippet-empty-open",
-                                                "Add in Settings",
-                                                true,
-                                                t,
-                                            )
-                                            .on_click(
-                                                cx.listener(|s, _, w, cx| {
-                                                    s.close_snippet_picker(w, cx);
-                                                    s.settings_page = Some(Section::Snippets);
-                                                    w.focus(&s.focus, cx);
-                                                    cx.notify();
-                                                }),
-                                            ),
+                                    empty_state::view(
+                                        t,
+                                        empty_state::SNIPPETS,
+                                        tr("No snippets yet."),
+                                    )
+                                    .gap(px(12.))
+                                    .child(
+                                        button(
+                                            "snippet-empty-open",
+                                            tr("Add in Settings"),
+                                            true,
+                                            t,
+                                        )
+                                        .on_click(
+                                            cx.listener(|s, _, w, cx| {
+                                                s.close_snippet_picker(w, cx);
+                                                s.settings_page = Some(Section::Snippets);
+                                                w.focus(&s.focus, cx);
+                                                cx.notify();
+                                            }),
                                         ),
+                                    ),
                                 ),
                             );
                         }
@@ -315,7 +324,7 @@ impl Shell {
                                 .justify_center()
                                 .text_sm()
                                 .text_color(t.muted)
-                                .child("No snippets match"),
+                                .child(tr("No snippets match")),
                         )
                     }),
             )
@@ -328,10 +337,10 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(picker::hint("↑ ↓", "Navigate", t))
-                    .child(picker::hint("↵", "Type it", t))
-                    .child(picker::hint("Esc", "Close", t))
-                    .child(div().text_size(px(10.)).text_color(t.faint).child(HINT)),
+                    .child(picker::hint("↑ ↓", tr("Navigate"), t))
+                    .child(picker::hint("↵", tr("Type it"), t))
+                    .child(picker::hint("Esc", tr("Close"), t))
+                    .child(div().text_size(px(10.)).text_color(t.faint).child(tr(HINT))),
             );
         Some(overlay(card.into_any_element(), viewport, t))
     }
@@ -348,14 +357,18 @@ impl Shell {
             let actions = div()
                 .flex()
                 .gap(px(6.))
-                .child(w::button(&t, ("snippet-edit", ix), "Edit").on_click(
+                .child(w::button(&t, ("snippet-edit", ix), tr("Edit")).on_click(
                     cx.listener(move |s, _, window, cx| s.open_snippet_form(Some(ix), window, cx)),
                 ))
                 .child(
                     w::button(
                         &t,
                         ("snippet-delete", ix),
-                        if confirming { "Delete?" } else { "Remove" },
+                        if confirming {
+                            tr("Delete?")
+                        } else {
+                            tr("Remove")
+                        },
                     )
                     .when(confirming, |el| el.text_color(t.danger))
                     .on_click(cx.listener(move |s, _, _, cx| s.delete_snippet(ix, cx))),
@@ -378,14 +391,14 @@ impl Shell {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(w::page_header(&t, "Snippets"))
-                    .child(w::button(&t, "snippet-new", "New snippet").on_click(
+                    .child(w::page_header(&t, tr("Snippets")))
+                    .child(w::button(&t, "snippet-new", tr("New snippet")).on_click(
                         cx.listener(|s, _, window, cx| s.open_snippet_form(None, window, cx)),
                     )),
             )
             .child(w::page_subtitle(
                 &t,
-                format!("{combo} opens the picker in a session. {HINT}"),
+                fill("{} opens the picker in a session. {}", &[&combo, tr(HINT)]),
             ))
             .when_some(self.snippets.store_error.clone(), |el, e| {
                 el.child(w::page_subtitle(&t, e).text_color(t.danger))
@@ -397,11 +410,11 @@ impl Shell {
                         empty_state::view(
                             &t,
                             empty_state::SNIPPETS,
-                            "No snippets yet. Save a command you type often.",
+                            tr("No snippets yet. Save a command you type often."),
                         )
                         .gap(px(12.))
                         .child(
-                            button("snippet-empty-new", "New snippet", true, &t).on_click(
+                            button("snippet-empty-new", tr("New snippet"), true, &t).on_click(
                                 cx.listener(|s, _, window, cx| {
                                     s.open_snippet_form(None, window, cx)
                                 }),
@@ -410,7 +423,7 @@ impl Shell {
                     )
                     .into_any_element()
             } else {
-                w::section(&t, "Saved snippets", list).into_any_element()
+                w::section(&t, tr("Saved snippets"), list).into_any_element()
             })
     }
 
@@ -566,9 +579,9 @@ impl Shell {
         let t = &self.theme;
         let viewport = window.viewport_size();
         let title = if form.editing.is_some() {
-            "Edit snippet"
+            tr("Edit snippet")
         } else {
-            "New snippet"
+            tr("New snippet")
         };
         let mut body = div()
             .flex()
@@ -576,9 +589,9 @@ impl Shell {
             .gap(px(10.))
             .px(px(16.))
             .py(px(12.))
-            .child(row("Name", &form.name, t))
-            .child(row("Command", &form.command, t))
-            .child(note(HINT, t));
+            .child(row(tr("Name"), &form.name, t))
+            .child(row(tr("Command"), &form.command, t))
+            .child(note(tr(HINT), t));
         if let Some(e) = &form.error {
             body = body.child(
                 div()
@@ -617,10 +630,10 @@ impl Shell {
                     .flex()
                     .justify_end()
                     .gap(px(8.))
-                    .child(button("snippet-cancel", "Cancel", false, t).on_click(
+                    .child(button("snippet-cancel", tr("Cancel"), false, t).on_click(
                         cx.listener(|shell, _, window, cx| shell.close_snippet_form(window, cx)),
                     ))
-                    .child(button("snippet-save", "Save", true, t).on_click(
+                    .child(button("snippet-save", tr("Save"), true, t).on_click(
                         cx.listener(|shell, _, window, cx| shell.submit_snippet_form(window, cx)),
                     )),
             );

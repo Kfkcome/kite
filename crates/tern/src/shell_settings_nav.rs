@@ -17,9 +17,19 @@ use gpui::{
 use super::{Section, Shell};
 use crate::hover;
 use crate::hover::Accessible as _;
+use crate::i18n::tr;
 use crate::icons::icon;
 use crate::shell::CubicBezier;
 use crate::theme::{self, SPACE_LG, SPACE_SM, Theme};
+
+fn group_label(label: &str) -> &'static str {
+    match label {
+        "General" => tr("General"),
+        "Connections" => tr("Connections"),
+        "Security & sync" => tr("Security & sync"),
+        _ => "",
+    }
+}
 
 /// The nav's groups in order, each a small muted label over its sections.
 pub(super) const GROUPS: [(&str, &[Section]); 4] = [
@@ -161,7 +171,7 @@ pub(super) fn render(
         .gap(px(6.))
         .child(
             crate::sidebar::icon_button("nav-back", crate::icons::CHEVRON_LEFT, 24., 16., &th)
-                .icon_button("Back", &th)
+                .icon_button(tr("Back"), &th)
                 .on_click(cx.listener(|s, _, window, cx| s.toggle_settings(window, cx))),
         )
         .child(
@@ -169,13 +179,13 @@ pub(super) fn render(
                 .text_size(px(15.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(th.text)
-                .child("Settings"),
+                .child(tr("Settings")),
         );
 
     let mut list = div()
         .id("settings-sections")
         .role(gpui::Role::TabList)
-        .aria_label("Settings sections")
+        .aria_label(tr("Settings sections"))
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
@@ -195,7 +205,7 @@ pub(super) fn render(
                     .items_center()
                     .text_size(px(12.))
                     .text_color(faint)
-                    .child(*label),
+                    .child(group_label(label)),
             );
         }
         for &item in *members {

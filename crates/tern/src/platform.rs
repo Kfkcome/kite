@@ -72,6 +72,22 @@ pub fn system_reduce_motion() -> bool {
     false
 }
 
+/// Whether the first language macOS lists is Chinese. Simplified and Traditional both count;
+/// tern has one Chinese interface.
+#[cfg(target_os = "macos")]
+pub fn system_prefers_chinese() -> bool {
+    let languages = objc2_foundation::NSLocale::preferredLanguages();
+    languages.firstObject().is_some_and(|language| {
+        let name = format!("{language}");
+        name.len() >= 2 && name.as_bytes()[..2].eq_ignore_ascii_case(b"zh")
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn system_prefers_chinese() -> bool {
+    false
+}
+
 /// Applies the effective value: either switch on holds motion still.
 pub fn apply_reduce_motion(setting: bool, cx: &mut App) {
     let reduce = setting || system_reduce_motion();

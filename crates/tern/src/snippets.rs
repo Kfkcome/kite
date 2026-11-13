@@ -122,6 +122,7 @@ pub fn from_field(text: &str) -> String {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::i18n::tr;
 
     #[test]
     fn a_trailing_newline_is_what_makes_a_snippet_run() {
@@ -135,8 +136,8 @@ mod tests {
 
     #[test]
     fn each_bad_field_is_named() {
-        assert!(validate(" ", "ls", &[]).unwrap_err().contains("Name"));
-        assert!(validate("a", " ", &[]).unwrap_err().contains("Command"));
+        assert!(validate(" ", "ls", &[]).unwrap_err().contains(tr("Name")));
+        assert!(validate("a", " ", &[]).unwrap_err().contains(tr("Command")));
         assert!(validate("a", "ls", &["a"]).unwrap_err().contains("exists"));
     }
 

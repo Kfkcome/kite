@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use super::Shell;
+use crate::i18n::tr;
 use crate::session::Status;
 
 /// A tab's identity for as long as it is open; unlike its slot it survives reordering, and
@@ -281,7 +282,7 @@ impl Shell {
                     .text_color(t.danger)
                     .hover(|s| s.bg(t.row_active))
                     .on_click(cx.listener(|s, _, _, cx| s.stop_broadcast(cx)))
-                    .child("Stop broadcasting"),
+                    .child(tr("Stop broadcasting")),
             );
         }
         Some(

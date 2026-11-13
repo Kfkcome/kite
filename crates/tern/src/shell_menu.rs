@@ -13,6 +13,7 @@ use gpui::{
 use tern_ssh::{ConnectSpec, HostEntry};
 
 use super::{Shell, ThemeTarget};
+use crate::i18n::tr;
 use crate::icons::{self, icon};
 
 type Run = Rc<dyn Fn(&mut Shell, &mut Window, &mut Context<Shell>)>;
@@ -69,25 +70,27 @@ impl Shell {
     ) {
         let alias = host.alias.clone();
         let connect = host.clone();
-        let mut items = vec![action(icons::TERMINAL, "Connect", move |s, w, cx| {
+        let mut items = vec![action(icons::TERMINAL, tr("Connect"), move |s, w, cx| {
             s.connect_host(&connect, w, cx)
         })];
         let fresh = host.clone();
-        items.push(action(icons::PLUS, "Open in new tab", move |s, w, cx| {
-            s.open_new_tab(&fresh, w, cx)
-        }));
+        items.push(action(
+            icons::PLUS,
+            tr("Open in new tab"),
+            move |s, w, cx| s.open_new_tab(&fresh, w, cx),
+        ));
         items.push(Item::Separator);
-        items.push(action(icons::PEN, "Edit…", move |s, w, cx| {
+        items.push(action(icons::PEN, tr("Edit…"), move |s, w, cx| {
             let draft = s.connection(editable);
             s.open_form(Some(editable), draft, w, cx);
         }));
         let theme_alias = alias.clone();
-        items.push(action(icons::PALETTE, "Theme…", move |s, w, cx| {
+        items.push(action(icons::PALETTE, tr("Theme…"), move |s, w, cx| {
             s.open_theme_picker(ThemeTarget::Host(theme_alias.clone()), w, cx)
         }));
         items.push(Item::Separator);
         // The menu is already a deliberate second step, so remove at once; Undo covers it.
-        items.push(destructive(icons::TRASH, "Remove", move |s, _, cx| {
+        items.push(destructive(icons::TRASH, tr("Remove"), move |s, _, cx| {
             s.confirm_delete = Some(editable);
             s.delete_connection(editable, cx);
         }));
@@ -112,7 +115,7 @@ impl Shell {
         let broadcasting = self.is_broadcasting(tab.id);
         let mut items = Vec::new();
         if closed {
-            items.push(action(icons::RESTART, "Reconnect", move |s, w, cx| {
+            items.push(action(icons::RESTART, tr("Reconnect"), move |s, w, cx| {
                 if let Some(tab) = s.tabs.get(ix)
                     && let Some(session) = tab
                         .panes
@@ -128,52 +131,60 @@ impl Shell {
         let again = alias.clone();
         items.push(action(
             icons::PLUS,
-            "New tab to this host",
+            tr("New tab to this host"),
             move |s, w, cx| match s.hosts.iter().find(|h| h.alias == again).cloned() {
                 Some(host) => s.open_new_tab(&host, w, cx),
                 None => s.connect_target(&again, w, cx),
             },
         ));
-        items.push(action(icons::PEN, "Rename…", move |s, w, cx| {
+        items.push(action(icons::PEN, tr("Rename…"), move |s, w, cx| {
             s.start_rename(ix, w, cx)
         }));
         if broadcasting {
-            items.push(action(icons::CLOSE, "Stop broadcasting", |s, _, cx| {
+            items.push(action(icons::CLOSE, tr("Stop broadcasting"), |s, _, cx| {
                 s.stop_broadcast(cx)
             }));
         }
         items.push(action(
             icons::KEYBOARD,
-            "Broadcast input to…",
+            tr("Broadcast input to…"),
             move |s, _, cx| s.open_broadcast_picker(ix, position, cx),
         ));
         if logging {
-            items.push(action(icons::INFO, "Stop logging", move |s, _, cx| {
+            items.push(action(icons::INFO, tr("Stop logging"), move |s, _, cx| {
                 s.stop_logging(ix, cx)
             }));
         } else {
-            items.push(action(icons::INFO, "Start logging…", move |s, _, cx| {
-                s.start_logging(ix, cx)
-            }));
+            items.push(action(
+                icons::INFO,
+                tr("Start logging…"),
+                move |s, _, cx| s.start_logging(ix, cx),
+            ));
         }
-        items.push(action(icons::FOLDER, "Browse files", move |s, w, cx| {
-            s.open_sftp(ix, w, cx)
-        }));
-        items.push(action(icons::GLOBE, "Port forwards…", move |s, w, cx| {
-            s.open_forwards_panel(ix, position, w, cx)
-        }));
+        items.push(action(
+            icons::FOLDER,
+            tr("Browse files"),
+            move |s, w, cx| s.open_sftp(ix, w, cx),
+        ));
+        items.push(action(
+            icons::GLOBE,
+            tr("Port forwards…"),
+            move |s, w, cx| s.open_forwards_panel(ix, position, w, cx),
+        ));
         let theme_alias = alias.clone();
-        items.push(action(icons::PALETTE, "Theme…", move |s, w, cx| {
+        items.push(action(icons::PALETTE, tr("Theme…"), move |s, w, cx| {
             s.open_theme_picker(ThemeTarget::Host(theme_alias.clone()), w, cx)
         }));
         items.push(Item::Separator);
-        items.push(destructive(icons::CLOSE, "Close tab", move |s, w, cx| {
-            s.close_tab_at(ix, w, cx)
-        }));
+        items.push(destructive(
+            icons::CLOSE,
+            tr("Close tab"),
+            move |s, w, cx| s.close_tab_at(ix, w, cx),
+        ));
         if self.tabs.len() > 1 {
             items.push(destructive(
                 icons::CLOSE,
-                "Close other tabs",
+                tr("Close other tabs"),
                 move |s, w, cx| s.close_other_tabs(ix, w, cx),
             ));
         }
@@ -191,12 +202,14 @@ impl Shell {
         let mut items = Vec::new();
         if matches!(key, tern_vault::Key::SshKey { .. }) {
             let copy = key.clone();
-            items.push(action(icons::COPY, "Copy public key", move |s, _, cx| {
-                s.copy_public_key(&copy, cx)
-            }));
+            items.push(action(
+                icons::COPY,
+                tr("Copy public key"),
+                move |s, _, cx| s.copy_public_key(&copy, cx),
+            ));
             items.push(Item::Separator);
         }
-        items.push(destructive(icons::TRASH, "Delete", move |s, _, cx| {
+        items.push(destructive(icons::TRASH, tr("Delete"), move |s, _, cx| {
             s.delete_secret(&key, cx)
         }));
         self.context_menu = Some(ContextMenu { position, items });

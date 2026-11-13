@@ -594,7 +594,7 @@ impl Render for TerminalView {
                 .border_color(theme.ansi[8])
                 .bg(theme.ansi[0])
                 .text_color(theme.foreground)
-                .font_family(theme.font_family.clone())
+                .font(crate::element::mono_font(theme))
                 .text_size(px(theme.font_size))
                 .child(div().min_w(px(160.0)).child(format!("{query}\u{258f}")))
                 .child(div().text_color(theme.ansi[8]).child(status))

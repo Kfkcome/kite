@@ -14,8 +14,9 @@ use gpui::{
 mod nav;
 
 use super::Shell;
+use crate::i18n::{fill, tr};
 use crate::keymap::{Keymap, Record, ShortcutId, badge, record};
-use crate::settings::{AppearanceMode, FONT_DEFAULT, FONT_MAX, FONT_MIN};
+use crate::settings::{AppearanceMode, FONT_DEFAULT, FONT_MAX, FONT_MIN, Language};
 use crate::settings_widgets as w;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,14 +45,14 @@ impl Section {
 
     fn label(self) -> &'static str {
         match self {
-            Section::Appearance => "Appearance",
-            Section::Terminal => "Terminal",
-            Section::Shortcuts => "Shortcuts",
-            Section::Connections => "Connections",
-            Section::Snippets => "Snippets",
-            Section::Vault => "Vault",
-            Section::Sync => "Sync",
-            Section::About => "About",
+            Section::Appearance => tr("Appearance"),
+            Section::Terminal => tr("Terminal"),
+            Section::Shortcuts => tr("Shortcuts"),
+            Section::Connections => tr("Connections"),
+            Section::Snippets => tr("Snippets"),
+            Section::Vault => tr("Vault"),
+            Section::Sync => tr("Sync"),
+            Section::About => tr("About"),
         }
     }
 
@@ -160,31 +161,32 @@ impl Shell {
         let t = self.theme;
         let size = self.settings.terminal_font_size;
         let (minus, value, plus) = w::stepper(&t, "font-size", format!("{size:.0} pt"));
-        let font =
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(minus.on_click(
+        let font = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                minus.on_click(
                     cx.listener(|s, _, _, cx| s.change_font(|st| st.step_font(-1.0), cx)),
-                ))
-                .child(value)
-                .child(
-                    plus.on_click(
-                        cx.listener(|s, _, _, cx| s.change_font(|st| st.step_font(1.0), cx)),
-                    ),
-                )
-                .child(w::button(&t, "font-reset", "Reset").on_click(cx.listener(
-                    |s, _, _, cx| s.change_font(|st| st.terminal_font_size = FONT_DEFAULT, cx),
-                )));
+                ),
+            )
+            .child(value)
+            .child(
+                plus.on_click(cx.listener(|s, _, _, cx| s.change_font(|st| st.step_font(1.0), cx))),
+            )
+            .child(
+                w::button(&t, "font-reset", tr("Reset")).on_click(cx.listener(|s, _, _, cx| {
+                    s.change_font(|st| st.terminal_font_size = FONT_DEFAULT, cx)
+                })),
+            );
         let reduce = self.settings.reduce_motion;
         let show_status = self.settings.show_status_line;
         let sharp = self.settings.sharp_text;
         let mut appearance_modes = div().flex().gap(px(6.));
         for (id, label, mode) in [
-            ("appearance-system", "System", AppearanceMode::System),
-            ("appearance-light", "Light", AppearanceMode::Light),
-            ("appearance-dark", "Dark", AppearanceMode::Dark),
+            ("appearance-system", tr("System"), AppearanceMode::System),
+            ("appearance-light", tr("Light"), AppearanceMode::Light),
+            ("appearance-dark", tr("Dark"), AppearanceMode::Dark),
         ] {
             let selected = self.settings.appearance == mode;
             appearance_modes = appearance_modes.child(
@@ -198,27 +200,59 @@ impl Shell {
                     })),
             );
         }
+        let mut language_modes = div().flex().gap(px(6.));
+        for (id, label, mode) in [
+            ("language-system", tr("System"), Language::System),
+            ("language-english", "English", Language::English),
+            ("language-chinese", "中文", Language::Chinese),
+        ] {
+            let selected = self.settings.language == mode;
+            language_modes = language_modes.child(
+                w::button(&t, id, label)
+                    .when(selected, |el| {
+                        el.bg(t.ink(0.18)).font_weight(gpui::FontWeight::MEDIUM)
+                    })
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        s.update_settings(|st| st.language = mode, cx);
+                        s.apply_language(cx);
+                    })),
+            );
+        }
         w::page_column()
-            .child(w::page_header(&t, "Appearance"))
+            .child(w::page_header(&t, tr("Appearance")))
             .child(w::section(
                 &t,
-                "Theme",
+                tr("Language"),
+                w::card(&t).child(w::row(
+                    &t,
+                    true,
+                    tr("Language"),
+                    Some(tr("System uses the language macOS lists first").into()),
+                    language_modes,
+                )),
+            ))
+            .child(w::section(
+                &t,
+                tr("Theme"),
                 w::card(&t)
                 .child(w::row(
                     &t,
                     true,
-                    "Appearance",
-                    Some("System follows macOS; the default terminal colours follow it too".into()),
+                    tr("Appearance"),
+                    Some(
+                        tr("System follows macOS; the default terminal colours follow it too")
+                            .into(),
+                    ),
                     appearance_modes,
                 ))
                 .child(w::row(
                     &t,
                     false,
-                    "Show status line",
-                    Some("Host, connection state and session time under the terminal".into()),
+                    tr("Show status line"),
+                    Some(tr("Host, connection state and session time under the terminal").into()),
                     div()
                         .id("toggle-status-line")
-                        .switch("Show status line", show_status)
+                        .switch(tr("Show status line"), show_status)
                         .cursor_pointer()
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.update_settings(|st| st.show_status_line = !st.show_status_line, cx)
@@ -228,14 +262,14 @@ impl Shell {
                 .child(w::row(
                     &t,
                     false,
-                    "Sharper text on standard displays",
+                    tr("Sharper text on standard displays"),
                     Some(
-                        "On 1x monitors: whole-pixel sizes, thinner icons, an opaque window and stronger muted text"
+                        tr("On 1x monitors: whole-pixel sizes, thinner icons, an opaque window and stronger muted text")
                             .into(),
                     ),
                     div()
                         .id("toggle-sharp-text")
-                        .switch("Sharper text on standard displays", sharp)
+                        .switch(tr("Sharper text on standard displays"), sharp)
                         .cursor_pointer()
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.update_settings(|st| st.sharp_text = !st.sharp_text, cx)
@@ -245,9 +279,9 @@ impl Shell {
                 .child(w::row(
                     &t,
                     false,
-                    "Terminal theme",
+                    tr("Terminal theme"),
                     Some(
-                        "For every host without its own; set one per host from the sidebar".into(),
+                        tr("For every host without its own; set one per host from the sidebar").into(),
                     ),
                     w::button(
                         &t,
@@ -264,11 +298,11 @@ impl Shell {
             ))
             .child(w::section(
                 &t,
-                "Terminal text",
+                tr("Terminal text"),
                 w::card(&t).child(w::row(
                     &t,
                     true,
-                    "Font size",
+                    tr("Font size"),
                     Some(
                         format!(
                             "{FONT_MIN:.0}–{FONT_MAX:.0} pt · {} {} {}",
@@ -281,18 +315,18 @@ impl Shell {
                     font,
                 )),
             ))
-            .child(w::section(&t, "Wallpaper", self.wallpaper_card(cx)))
+            .child(w::section(&t, tr("Wallpaper"), self.wallpaper_card(cx)))
             .child(w::section(
                 &t,
-                "Motion",
+                tr("Motion"),
                 w::card(&t).child(w::row(
                     &t,
                     true,
-                    "Reduce motion",
-                    Some("Hold the connecting pulse and sidebar slide still. On by itself when macOS Reduce motion is on".into()),
+                    tr("Reduce motion"),
+                    Some(tr("Hold the connecting pulse and sidebar slide still. On by itself when macOS Reduce motion is on").into()),
                     div()
                         .id("toggle-reduce-motion")
-                        .switch("Reduce motion", reduce)
+                        .switch(tr("Reduce motion"), reduce)
                         .cursor_pointer()
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.update_settings(|st| st.reduce_motion = !st.reduce_motion, cx);
@@ -314,7 +348,7 @@ impl Shell {
                 &t,
                 ("shortcut", ix),
                 if recording {
-                    "Press keys…".to_owned()
+                    tr("Press keys…").to_owned()
                 } else {
                     badge(combo)
                 },
@@ -324,16 +358,17 @@ impl Shell {
             .on_click(cx.listener(move |s, _, window, cx| s.start_recording(id, window, cx)));
             let mut control = div().flex().items_center().gap(px(6.)).child(chip);
             if !keymap.is_default(id) {
-                control = control.child(w::button(&t, ("shortcut-reset", ix), "Reset").on_click(
-                    cx.listener(move |s, _, _, cx| {
-                        s.set_shortcut(id, id.default_combo(), cx);
-                    }),
-                ));
+                control =
+                    control.child(w::button(&t, ("shortcut-reset", ix), tr("Reset")).on_click(
+                        cx.listener(move |s, _, _, cx| {
+                            s.set_shortcut(id, id.default_combo(), cx);
+                        }),
+                    ));
             }
             card = card.child(w::row(&t, ix == 0, id.label(), None, control));
         }
         w::page_column()
-            .child(w::page_header(&t, "Shortcuts"))
+            .child(w::page_header(&t, tr("Shortcuts")))
             .child(w::page_subtitle(
                 &t,
                 if cfg!(target_os = "macos") {
@@ -347,15 +382,15 @@ impl Shell {
             .when_some(self.record_notice.clone(), |el, notice| {
                 el.child(w::page_subtitle(&t, notice).text_color(t.danger))
             })
-            .child(w::section(&t, "App", card))
+            .child(w::section(&t, tr("App"), card))
             .child(w::section(
                 &t,
-                "Fixed",
+                tr("Fixed"),
                 w::card(&t)
                     .child(w::row(
                         &t,
                         true,
-                        "Switch to tab 1–9",
+                        tr("Switch to tab 1–9"),
                         None,
                         div().text_sm().text_color(t.muted).child(if cfg!(target_os = "macos") {
                             "⌘1 … ⌘9"
@@ -366,7 +401,7 @@ impl Shell {
                     .child(w::row(
                         &t,
                         false,
-                        "Next / previous tab",
+                        tr("Next / previous tab"),
                         None,
                         div().text_sm().text_color(t.muted).child(if cfg!(target_os = "macos") {
                             "⌃Tab  ⌃⇧Tab"
@@ -378,9 +413,9 @@ impl Shell {
                         &t,
                         false,
                         if cfg!(target_os = "macos") {
-                            "Quit, hide, minimise"
+                            tr("Quit, hide, minimise")
                         } else {
-                            "Quit"
+                            tr("Quit")
                         },
                         None,
                         div().text_sm().text_color(t.muted).child(if cfg!(target_os = "macos") {
@@ -433,7 +468,7 @@ impl Shell {
         if let Some(dir) = crate::settings::dir()
             && let Err(e) = cx.global::<Keymap>().save(&dir)
         {
-            self.record_notice = Some(format!("Could not save keymap.json: {e}"));
+            self.record_notice = Some(fill("Could not save keymap.json: {}", &[&e.to_string()]));
         }
         crate::keymap::apply(cx);
         cx.notify();
@@ -446,8 +481,8 @@ impl Shell {
             list = list.child(w::row(
                 &t,
                 true,
-                "No connections yet",
-                Some("Hosts from ~/.ssh/config are listed in the sidebar".into()),
+                tr("No connections yet"),
+                Some(tr("Hosts from ~/.ssh/config are listed in the sidebar").into()),
                 div(),
             ));
         }
@@ -462,7 +497,7 @@ impl Shell {
                 .flex()
                 .gap(px(6.))
                 .child(
-                    w::button(&t, ("settings-edit", ix), "Edit").on_click(cx.listener(
+                    w::button(&t, ("settings-edit", ix), tr("Edit")).on_click(cx.listener(
                         move |s, _, window, cx| {
                             let draft = s.connection(ix);
                             s.open_form(Some(ix), draft, window, cx);
@@ -473,7 +508,11 @@ impl Shell {
                     w::button(
                         &t,
                         ("settings-delete", ix),
-                        if confirming { "Delete?" } else { "Remove" },
+                        if confirming {
+                            tr("Delete?")
+                        } else {
+                            tr("Remove")
+                        },
                     )
                     .when(confirming, |el| el.text_color(t.danger))
                     .on_click(cx.listener(move |s, _, _, cx| s.delete_connection(ix, cx))),
@@ -492,34 +531,33 @@ impl Shell {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(w::page_header(&t, "Connections"))
+                    .child(w::page_header(&t, tr("Connections")))
                     .child(
                         div()
                             .flex()
                             .gap(px(6.))
                             .child(
-                                w::button(&t, "settings-import", "Import from ~/.ssh/config…")
+                                w::button(&t, "settings-import", tr("Import from ~/.ssh/config…"))
                                     .on_click(
                                         cx.listener(|s, _, window, cx| s.open_import(window, cx)),
                                     ),
                             )
-                            .child(w::button(&t, "settings-new", "New connection").on_click(
+                            .child(w::button(&t, "settings-new", tr("New connection")).on_click(
                                 cx.listener(|s, _, window, cx| s.open_form(None, None, window, cx)),
                             )),
                     ),
             )
             .child(w::page_subtitle(
                 &t,
-                format!(
-                    "{} saved in tern. Import copies hosts out of ~/.ssh/config once; \
-                     it is never read or written afterwards.",
-                    self.connections.len()
+                fill(
+                    "{} saved in tern. Import copies hosts out of ~/.ssh/config once; it is never read or written afterwards.",
+                    &[&self.connections.len().to_string()],
                 ),
             ))
             .when_some(self.store_error.clone(), |el, e| {
                 el.child(w::page_subtitle(&t, e).text_color(t.danger))
             })
-            .child(w::section(&t, "Saved in tern", list))
+            .child(w::section(&t, tr("Saved in tern"), list))
     }
 }
 
@@ -528,45 +566,45 @@ impl Shell {
         let t = self.theme;
         let on = self.settings.check_for_updates;
         w::page_column()
-            .child(w::page_header(&t, "About"))
+            .child(w::page_header(&t, tr("About")))
             .child(w::section(
-                &t,
-                "tern",
-                w::card(&t)
-                    .child(w::row(
-                        &t,
-                        true,
-                        "Version",
-                        Some(env!("CARGO_PKG_VERSION").into()),
-                        div(),
-                    ))
-                    .child(w::row(
-                        &t,
-                        true,
-                        "Check for updates",
-                        Some(
-                            "Once a day, ask GitHub for a newer release; tern never installs one"
-                                .into(),
-                        ),
-                        div()
-                            .id("toggle-check-updates")
-                            .switch("Check for updates", on)
-                            .cursor_pointer()
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.update_settings(
-                                    |st| st.check_for_updates = !st.check_for_updates,
-                                    cx,
-                                );
-                            }))
-                            .child(w::toggle(&t, on, "check-updates")),
-                    ))
-                    .child(w::row(
-                        &t,
-                        false,
-                        "Logs",
-                        Some(crate::settings::log_dir_label().into()),
-                        div(),
-                    )),
-            ))
+            &t,
+            "tern",
+            w::card(&t)
+                .child(w::row(
+                    &t,
+                    true,
+                    tr("Version"),
+                    Some(env!("CARGO_PKG_VERSION").into()),
+                    div(),
+                ))
+                .child(w::row(
+                    &t,
+                    true,
+                    tr("Check for updates"),
+                    Some(
+                        tr("Once a day, ask GitHub for a newer release; tern never installs one")
+                            .into(),
+                    ),
+                    div()
+                        .id("toggle-check-updates")
+                        .switch(tr("Check for updates"), on)
+                        .cursor_pointer()
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.update_settings(
+                                |st| st.check_for_updates = !st.check_for_updates,
+                                cx,
+                            );
+                        }))
+                        .child(w::toggle(&t, on, "check-updates")),
+                ))
+                .child(w::row(
+                    &t,
+                    false,
+                    tr("Logs"),
+                    Some(crate::settings::log_dir_label().into()),
+                    div(),
+                )),
+        ))
     }
 }

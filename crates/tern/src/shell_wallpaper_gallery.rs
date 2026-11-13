@@ -14,6 +14,7 @@ use gpui::{
 use super::Shell;
 use crate::hover::Accessible as _;
 use crate::hover::HoverFade as _;
+use crate::i18n::tr;
 use crate::theme::Theme;
 use crate::wallpaper_gallery::{self as data, BUILTINS, Builtin};
 
@@ -133,7 +134,7 @@ impl Shell {
         let t: Theme = self.theme;
         let selected = self.tile_selected(&tile);
         let (title, label): (SharedString, Option<&str>) = match &tile {
-            Tile::None => ("No wallpaper".into(), Some("None")),
+            Tile::None => (tr("No wallpaper").into(), Some(tr("None"))),
             Tile::Builtin(b) => (b.title.into(), None),
             Tile::Recent(path) => (
                 Path::new(path)
@@ -142,7 +143,7 @@ impl Shell {
                     .into(),
                 None,
             ),
-            Tile::Add => ("Choose an image…".into(), Some("+")),
+            Tile::Add => (tr("Choose an image…").into(), Some("+")),
         };
         let thumb = match &tile {
             Tile::Builtin(b) => self.wp.gallery.thumbs.get(&builtin_key(b)),
@@ -237,7 +238,7 @@ impl Shell {
                     .line_height(px(17.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(t.text)
-                    .child("Image"),
+                    .child(tr("Image")),
             )
             .child(
                 div()

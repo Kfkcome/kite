@@ -16,6 +16,7 @@ use crate::theme::Theme;
 use std::io;
 use std::path::Path;
 
+use crate::i18n::tr;
 use serde::{Deserialize, Serialize};
 
 actions!(tern, [FocusHostSearch]);
@@ -35,7 +36,7 @@ impl HostList {
             cursor: t.accent,
             selection: t.accent.opacity(0.35),
         };
-        let search = cx.new(|cx| TextInput::new("Search hosts", false, colors, cx));
+        let search = cx.new(|cx| TextInput::new(tr("Search hosts"), false, colors, cx));
         // The list under the box re-filters on every keystroke.
         let repaint = cx.observe(&search, |_, _, cx| cx.notify());
         Self {

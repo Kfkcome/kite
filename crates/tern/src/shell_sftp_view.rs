@@ -14,6 +14,7 @@ use gpui::{
 
 use super::State;
 use crate::empty_state::{self, Listing};
+use crate::i18n::tr;
 use crate::icons::{self, icon};
 use crate::sftp_paths;
 use crate::shell::Shell;
@@ -144,7 +145,7 @@ impl Shell {
             .text_size(px(11.))
             .text_color(t.faint)
             .child(div().w(px(16.)))
-            .child(div().flex_1().child("Name"))
+            .child(div().flex_1().child(tr("Name")))
             .child(div().w(px(58.)).flex().justify_end().child("Size"))
             .child(div().w(px(88.)).child("Modified"));
         let now = SystemTime::now();

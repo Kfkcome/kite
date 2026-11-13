@@ -16,6 +16,7 @@ use gpui::{
 
 use super::Shell;
 use super::toast::CubicBezier;
+use crate::i18n::{fill, tr};
 use crate::settings_widgets as w;
 use crate::theme::Theme;
 use crate::theme_tint::{self, rgb_of};
@@ -280,7 +281,7 @@ impl Shell {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose wallpaper".into()),
+            prompt: Some(tr("Choose wallpaper").into()),
         });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = paths.await else {
@@ -334,18 +335,21 @@ impl Shell {
         };
         let current = match self.settings.wallpaper.as_deref() {
             Some(p) if self.active_wallpaper().is_some() => name_of(p),
-            Some(_) => "File not found".to_owned(),
-            None => "None".to_owned(),
+            Some(_) => tr("File not found").to_owned(),
+            None => tr("None").to_owned(),
         };
         let status = match &self.wp.error {
             Some(e) => e.clone(),
-            None => format!("{current} · fills the window; the empty view shows it sharp"),
+            None => fill(
+                "{} · fills the window; the empty view shows it sharp",
+                &[&current],
+            ),
         };
         let card = w::card(&t).child(self.wallpaper_gallery(status, cx));
-        let mut effects = div().flex().gap(px(6.));
-        for (id, label, effect) in EFFECTS {
+        let mut effect_row = div().flex().gap(px(6.));
+        for (id, label, effect) in effects() {
             let selected = self.settings.wallpaper_effect == effect;
-            effects = effects.child(
+            effect_row = effect_row.child(
                 w::button(&t, id, label)
                     .when(selected, |el| {
                         el.bg(t.ink(0.18)).font_weight(FontWeight::MEDIUM)
@@ -367,15 +371,15 @@ impl Shell {
         card.child(w::row(
             &t,
             false,
-            "Effect",
-            Some("Rendered once and cached".into()),
-            effects,
+            tr("Effect"),
+            Some(tr("Rendered once and cached").into()),
+            effect_row,
         ))
         .child(w::row(
             &t,
             false,
-            "Visibility",
-            Some("How strongly the picture shows".into()),
+            tr("Visibility"),
+            Some(tr("How strongly the picture shows").into()),
             div()
                 .flex()
                 .items_center()
@@ -387,14 +391,14 @@ impl Shell {
         .child(w::row(
             &t,
             false,
-            "Wallpaper fills the window",
+            tr("Wallpaper fills the window"),
             Some(
-                "Panels carry the text, sized to the picture; off keeps it to the empty view"
+                tr("Panels carry the text, sized to the picture; off keeps it to the empty view")
                     .into(),
             ),
             div()
                 .id("toggle-wallpaper-fills")
-                .switch("Wallpaper fills the window", fills)
+                .switch(tr("Wallpaper fills the window"), fills)
                 .cursor_pointer()
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.update_settings(
@@ -408,13 +412,14 @@ impl Shell {
         .child(w::row(
             &t,
             false,
-            "Theme colours from wallpaper",
+            tr("Theme colours from wallpaper"),
             Some(
-                "Surfaces, accent and hover washes lean toward the image's dominant colour".into(),
+                tr("Surfaces, accent and hover washes lean toward the image's dominant colour")
+                    .into(),
             ),
             div()
                 .id("toggle-wallpaper-colours")
-                .switch("Theme colours from wallpaper", on)
+                .switch(tr("Theme colours from wallpaper"), on)
                 .cursor_pointer()
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.update_settings(
@@ -428,13 +433,15 @@ impl Shell {
     }
 }
 
-const EFFECTS: [(&str, &str, Effect); 5] = [
-    ("wp-fx-none", "None", Effect::None),
-    ("wp-fx-scanlines", "Scanlines", Effect::Scanlines),
-    ("wp-fx-ascii", "ASCII", Effect::Ascii),
-    ("wp-fx-halftone", "Halftone", Effect::Halftone),
-    ("wp-fx-dither", "Dither", Effect::Dither),
-];
+fn effects() -> [(&'static str, &'static str, Effect); 5] {
+    [
+        ("wp-fx-none", tr("None"), Effect::None),
+        ("wp-fx-scanlines", tr("Scanlines"), Effect::Scanlines),
+        ("wp-fx-ascii", "ASCII", Effect::Ascii),
+        ("wp-fx-halftone", tr("Halftone"), Effect::Halftone),
+        ("wp-fx-dither", tr("Dither"), Effect::Dither),
+    ]
+}
 
 fn picture(path: PathBuf, opacity: f32) -> AnyElement {
     use gpui::StyledImage as _;

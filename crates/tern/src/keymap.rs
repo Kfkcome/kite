@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
+use crate::i18n::{fill, tr};
 use gpui::{Action, App, Global, KeyBinding};
 use serde::{Deserialize, Serialize};
 
@@ -72,26 +73,26 @@ impl ShortcutId {
 
     pub fn label(self) -> &'static str {
         match self {
-            ShortcutId::HostPicker => "Open host picker",
-            ShortcutId::SearchHosts => "Search hosts",
-            ShortcutId::Snippets => "Snippets",
-            ShortcutId::NewConnection => "New connection",
-            ShortcutId::SplitRight => "Split right",
-            ShortcutId::SplitDown => "Split down",
-            ShortcutId::PaneLeft => "Focus pane left",
-            ShortcutId::PaneRight => "Focus pane right",
-            ShortcutId::PaneUp => "Focus pane up",
-            ShortcutId::PaneDown => "Focus pane down",
-            ShortcutId::Settings => "Open settings",
-            ShortcutId::ToggleSidebar => "Toggle sidebar",
-            ShortcutId::BrowseFiles => "Browse files",
-            ShortcutId::CloseTab => "Close tab",
-            ShortcutId::NextTab => "Next tab",
-            ShortcutId::PrevTab => "Previous tab",
-            ShortcutId::FontBigger => "Bigger text",
-            ShortcutId::FontSmaller => "Smaller text",
-            ShortcutId::FontReset => "Default text size",
-            ShortcutId::FillPassword => "Fill password",
+            ShortcutId::HostPicker => tr("Open host picker"),
+            ShortcutId::SearchHosts => tr("Search hosts"),
+            ShortcutId::Snippets => tr("Snippets"),
+            ShortcutId::NewConnection => tr("New connection"),
+            ShortcutId::SplitRight => tr("Split right"),
+            ShortcutId::SplitDown => tr("Split down"),
+            ShortcutId::PaneLeft => tr("Focus pane left"),
+            ShortcutId::PaneRight => tr("Focus pane right"),
+            ShortcutId::PaneUp => tr("Focus pane up"),
+            ShortcutId::PaneDown => tr("Focus pane down"),
+            ShortcutId::Settings => tr("Open settings"),
+            ShortcutId::ToggleSidebar => tr("Toggle sidebar"),
+            ShortcutId::BrowseFiles => tr("Browse files"),
+            ShortcutId::CloseTab => tr("Close tab"),
+            ShortcutId::NextTab => tr("Next tab"),
+            ShortcutId::PrevTab => tr("Previous tab"),
+            ShortcutId::FontBigger => tr("Bigger text"),
+            ShortcutId::FontSmaller => tr("Smaller text"),
+            ShortcutId::FontReset => tr("Default text size"),
+            ShortcutId::FillPassword => tr("Fill password"),
         }
     }
 
@@ -267,15 +268,16 @@ impl Keymap {
     /// Why `combo` cannot go to `id`, or `None` when it can.
     pub fn refusal(&self, id: ShortcutId, combo: &str) -> Option<String> {
         if RESERVED.contains(&combo) {
-            return Some(format!(
-                "{} is kept for quitting and the clipboard",
-                badge(combo)
-            ));
+            let shown = badge(combo);
+            return Some(fill("{} is kept for quitting and the clipboard", &[&shown]));
         }
         ShortcutId::ALL
             .iter()
             .find(|other| **other != id && self.combo(**other) == combo)
-            .map(|other| format!("{} is already “{}”", badge(combo), other.label()))
+            .map(|other| {
+                let shown = badge(combo);
+                fill("{} is already “{}”", &[&shown, other.label()])
+            })
     }
 
     /// Key bindings for every bound shortcut.
@@ -463,7 +465,7 @@ mod tests {
         assert_eq!(k.combo(ShortcutId::HostPicker), "cmd-p");
         assert!(!k.is_default(ShortcutId::HostPicker));
         let refusal = k.refusal(ShortcutId::Settings, "cmd-p").unwrap();
-        assert!(refusal.contains("Open host picker"), "{refusal}");
+        assert!(refusal.contains(tr("Open host picker")), "{refusal}");
         assert!(k.refusal(ShortcutId::Settings, picker).is_none());
         // Re-recording a shortcut's own chord is not a conflict with itself.
         assert!(k.refusal(ShortcutId::HostPicker, "cmd-p").is_none());

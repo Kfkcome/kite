@@ -4,6 +4,7 @@
 
 use gpui::Hsla;
 
+use crate::i18n::tr;
 use crate::session::Status;
 use crate::theme::Theme;
 
@@ -71,11 +72,11 @@ impl Dot {
 
     pub fn label(self) -> &'static str {
         match self {
-            Dot::Idle => "Not connected · Enter connects",
-            Dot::Connecting => "Connecting…",
-            Dot::WaitingForInput => "Waiting for your answer",
-            Dot::Connected => "Connected",
-            Dot::Closed => "Disconnected",
+            Dot::Idle => tr("Not connected · Enter connects"),
+            Dot::Connecting => tr("Connecting…"),
+            Dot::WaitingForInput => tr("Waiting for your answer"),
+            Dot::Connected => tr("Connected"),
+            Dot::Closed => tr("Disconnected"),
         }
     }
 }

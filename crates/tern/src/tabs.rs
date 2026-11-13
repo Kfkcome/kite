@@ -15,6 +15,7 @@ use gpui::{
 
 use crate::shell::DraggedPane;
 
+use crate::i18n::tr;
 use crate::indicator::Dot;
 use crate::shell::Shell;
 use crate::text_input::TextInput;
@@ -269,7 +270,7 @@ fn tab_pill(
                     .bg(t.accent.opacity(0.22))
                     .text_color(t.accent)
                     .text_size(px(9.))
-                    .child("BCAST"),
+                    .child(tr("BCAST")),
             )
         })
         .when(tab.logging, |el| {
@@ -281,13 +282,13 @@ fn tab_pill(
                     .bg(t.danger.opacity(0.18))
                     .text_color(t.danger)
                     .text_size(px(9.))
-                    .child("LOG"),
+                    .child(tr("LOG")),
             )
         })
         .child(
             div()
                 .id(("close", ix))
-                .icon_button("Close tab", t)
+                .icon_button(tr("Close tab"), t)
                 .size(px(18.))
                 .flex_none()
                 .flex()

@@ -35,6 +35,7 @@ security-framework.workspace = true
 mimalloc = { version = "0.1", default-features = false }
 libmimalloc-sys = { version = "0.1", features = ["extended"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSLocale", "NSString"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -9,6 +9,7 @@ use gpui::{
 use super::{ConnectionForm, row};
 use crate::connections::{Connection, DEFAULT_KEEP_ALIVE};
 use crate::hover::HoverFade as _;
+use crate::i18n::tr;
 use crate::icons::{self, icon};
 use crate::settings_widgets::toggle;
 use crate::shell::Shell;
@@ -61,21 +62,26 @@ impl Shell {
                         0.
                     }))),
             )
-            .child(div().text_size(px(12.)).text_color(faint).child("Advanced"));
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(faint)
+                    .child(tr("Advanced")),
+            );
         div()
             .flex()
             .flex_col()
             .gap(px(10.))
             .child(header)
             .when(open, |el| {
-                el.child(row("Jump host", &form.proxy_jump, t))
+                el.child(row(tr("Jump host"), &form.proxy_jump, t))
                     .child(
                         div()
                             .flex()
                             .items_end()
                             .gap(px(10.))
                             .child(div().w(px(160.)).child(row(
-                                "Keep-alive (seconds, 0 = off)",
+                                tr("Keep-alive (seconds, 0 = off)"),
                                 &form.keep_alive,
                                 t,
                             )))
@@ -95,14 +101,18 @@ impl Shell {
                                         }
                                         cx.notify();
                                     }))
-                                    .child(div().text_sm().child("Forward SSH agent"))
+                                    .child(div().text_sm().child(tr("Forward SSH agent")))
                                     .child(toggle(t, form.forward_agent, "form-forward-agent")),
                             ),
                     )
                     .child(self.forward_rows(form, cx))
-                    .child(row("Vault key", &form.vault_key, t))
-                    .child(row("Password command", &form.password_command, t))
-                    .child(row("Sudo password command", &form.sudo_password_command, t))
+                    .child(row(tr("Vault key"), &form.vault_key, t))
+                    .child(row(tr("Password command"), &form.password_command, t))
+                    .child(row(
+                        tr("Sudo password command"),
+                        &form.sudo_password_command,
+                        t,
+                    ))
             })
     }
 
@@ -114,7 +124,12 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().text_xs().text_color(t.muted).child("Port forwards"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(t.muted)
+                        .child(tr("Port forwards")),
+                )
                 .child(
                     div()
                         .id("form-add-forward")
@@ -128,7 +143,7 @@ impl Shell {
                         .on_click(
                             cx.listener(|shell, _, window, cx| shell.add_forward_row(window, cx)),
                         )
-                        .child("+ Add"),
+                        .child(tr("+ Add")),
                 ),
         );
         for (ix, input) in form.forwards.iter().enumerate() {

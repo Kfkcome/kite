@@ -4,6 +4,7 @@ use gpui::{AppContext, Context, Entity, KeyDownEvent, Window};
 use tern_ssh::ConnectSpec;
 
 use super::{Pane, Shell, Tab};
+use crate::i18n::fill;
 use crate::session::Launch;
 use crate::split::{self, Axis, Node};
 use crate::tabs;
@@ -118,7 +119,7 @@ impl Shell {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 self.toast(
-                    super::Toast::new(super::ToastKind::Default, format!("Logging to {name}"))
+                    super::Toast::new(super::ToastKind::Default, fill("Logging to {}", &[&name]))
                         .action(crate::platform::REVEAL_LABEL, move |_, _, cx| {
                             cx.reveal_path(&path)
                         }),
@@ -127,7 +128,7 @@ impl Shell {
             }
             Err(e) => self.notify_toast(
                 super::ToastKind::Critical,
-                format!("Could not start the log: {e}"),
+                fill("Could not start the log: {}", &[&e.to_string()]),
                 cx,
             ),
         }
@@ -144,7 +145,7 @@ impl Shell {
         if let Some(path) = path {
             self.notify_toast(
                 super::ToastKind::Default,
-                format!("Log saved to {}", path.display()),
+                fill("Log saved to {}", &[&path.display().to_string()]),
                 cx,
             );
         }

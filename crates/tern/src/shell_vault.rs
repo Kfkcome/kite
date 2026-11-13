@@ -12,6 +12,7 @@ use tern_vault::keys::{self, KeyInfo};
 use tern_vault::{ExposeSecret, Key, Vault, VaultError};
 
 use super::{Shell, Toast, ToastKind};
+use crate::i18n::{fill, tr};
 use crate::keeper::{self, Keeper};
 use crate::text_input::{InputColors, TextInput};
 use crate::vault_pin;
@@ -61,10 +62,10 @@ pub(super) fn describe_entry(key: &Key, hosts: &[HostEntry]) -> (String, String)
                     },
                     |h| h.alias.clone(),
                 );
-            (alias, format!("{user} · Password"))
+            (alias, format!("{} · {}", user, tr("Password")))
         }
-        Key::KeyPassphrase { path } => (path.clone(), "Key passphrase".into()),
-        Key::SshKey { name } => (name.clone(), "SSH key".into()),
+        Key::KeyPassphrase { path } => (path.clone(), tr("Key passphrase").into()),
+        Key::SshKey { name } => (name.clone(), tr("SSH key").into()),
     }
 }
 
@@ -78,13 +79,13 @@ fn expand_home(path: &str) -> PathBuf {
 /// Why a new passphrase is refused, in words for the form; `None` when it is acceptable.
 fn passphrase_problem(current: &str, new: &str, confirm: &str) -> Option<&'static str> {
     if current.is_empty() {
-        Some("Enter the current passphrase.")
+        Some(tr("Enter the current passphrase."))
     } else if new.is_empty() {
-        Some("Enter a new passphrase.")
+        Some(tr("Enter a new passphrase."))
     } else if new != confirm {
-        Some("The new passphrase and its confirmation differ.")
+        Some(tr("The new passphrase and its confirmation differ."))
     } else if new == current {
-        Some("The new passphrase is the same as the current one.")
+        Some(tr("The new passphrase is the same as the current one."))
     } else {
         None
     }
@@ -110,15 +111,15 @@ impl Shell {
             cx.new(|cx| TextInput::new(placeholder, masked, colors, cx))
         };
         let ui = VaultUi {
-            unlock: input("Vault passphrase", true),
-            current: input("Current passphrase", true),
-            new: input("New passphrase", true),
-            confirm: input("Repeat new passphrase", true),
-            pin: input("Vault PIN", true),
-            pin_new: input("New PIN, 4 to 8 digits", true),
-            pin_repeat: input("Repeat PIN", true),
+            unlock: input(tr("Vault passphrase"), true),
+            current: input(tr("Current passphrase"), true),
+            new: input(tr("New passphrase"), true),
+            confirm: input(tr("Repeat new passphrase"), true),
+            pin: input(tr("Vault PIN"), true),
+            pin_new: input(tr("New PIN, 4 to 8 digits"), true),
+            pin_repeat: input(tr("Repeat PIN"), true),
             use_passphrase: false,
-            key_name: input("Key name, e.g. laptop", false),
+            key_name: input(tr("Key name, e.g. laptop"), false),
             key_path: input("~/.ssh/id_ed25519", false),
             busy: false,
             message: None,
@@ -199,12 +200,14 @@ impl Shell {
                             let input = ui.unlock.clone();
                             s.clear_inputs(&[&input], cx);
                         }
-                        s.notify_toast(ToastKind::Positive, "Vault unlocked", cx);
+                        s.notify_toast(ToastKind::Positive, tr("Vault unlocked"), cx);
                     }
                     Err(VaultError::WrongPassphrase) => {
-                        s.vault_message(false, "Wrong vault passphrase.", cx)
+                        s.vault_message(false, tr("Wrong vault passphrase."), cx)
                     }
-                    Err(e) => s.vault_message(false, format!("Vault unavailable: {e}"), cx),
+                    Err(e) => {
+                        s.vault_message(false, fill("Vault unavailable: {}", &[&e.to_string()]), cx)
+                    }
                 }
                 cx.notify();
             });
@@ -243,7 +246,7 @@ impl Shell {
                             let input = ui.pin.clone();
                             s.clear_inputs(&[&input], cx);
                         }
-                        s.notify_toast(ToastKind::Positive, "Vault unlocked", cx);
+                        s.notify_toast(ToastKind::Positive, tr("Vault unlocked"), cx);
                     }
                     Some(text) => s.vault_message(false, text, cx),
                 }
@@ -296,9 +299,13 @@ impl Shell {
                             let (a, b) = (ui.new.clone(), ui.confirm.clone());
                             s.clear_inputs(&[&a, &b], cx);
                         }
-                        s.notify_toast(ToastKind::Positive, "Vault created", cx);
+                        s.notify_toast(ToastKind::Positive, tr("Vault created"), cx);
                     }
-                    Err(e) => s.vault_message(false, format!("Could not create it: {e}"), cx),
+                    Err(e) => s.vault_message(
+                        false,
+                        fill("Could not create it: {}", &[&e.to_string()]),
+                        cx,
+                    ),
                 }
                 cx.notify();
             });
@@ -342,7 +349,7 @@ impl Shell {
                             let (a, b) = (ui.pin_new.clone(), ui.pin_repeat.clone());
                             s.clear_inputs(&[&a, &b], cx);
                         }
-                        s.notify_toast(ToastKind::Positive, "Vault PIN set", cx);
+                        s.notify_toast(ToastKind::Positive, tr("Vault PIN set"), cx);
                     }
                     Err(e) => s.vault_message(false, e, cx),
                 }
@@ -354,7 +361,7 @@ impl Shell {
 
     pub(super) fn clear_vault_pin(&mut self, cx: &mut Context<Self>) {
         match Keeper::clear_pin(cx) {
-            Ok(()) => self.notify_toast(ToastKind::Default, "Vault PIN removed", cx),
+            Ok(()) => self.notify_toast(ToastKind::Default, tr("Vault PIN removed"), cx),
             Err(e) => self.notify_toast(ToastKind::Critical, e, cx),
         }
         cx.notify();
@@ -366,7 +373,7 @@ impl Shell {
             if let Some(ui) = self.vault_ui.as_mut() {
                 ui.shown_key = None;
             }
-            self.notify_toast(ToastKind::Default, "Vault locked", cx);
+            self.notify_toast(ToastKind::Default, tr("Vault locked"), cx);
         }
     }
 
@@ -384,9 +391,10 @@ impl Shell {
                         && keeper::idle_expired(s.last_input.elapsed(), minutes)
                     {
                         Keeper::lock(cx);
+                        let n = minutes.to_string();
                         s.notify_toast(
                             ToastKind::Default,
-                            format!("Vault locked after {minutes} minutes idle"),
+                            fill("Vault locked after {} minutes idle", &[&n]),
                             cx,
                         );
                     }
@@ -411,7 +419,7 @@ impl Shell {
                 let _ = this.update(cx, |s, cx| {
                     s.notify_toast(
                         ToastKind::Critical,
-                        format!("Could not save the vault: {e}"),
+                        fill("Could not save the vault: {}", &[&e.to_string()]),
                         cx,
                     )
                 });
@@ -431,9 +439,9 @@ impl Shell {
         self.toast(
             Toast::new(
                 ToastKind::Default,
-                format!("Removed {title} from the vault"),
+                fill("Removed {} from the vault", &[&title]),
             )
-            .action("Undo", move |s, _, cx| {
+            .action(tr("Undo"), move |s, _, cx| {
                 s.restore_secret(undo_key.clone(), value.clone(), cx)
             }),
             cx,
@@ -476,12 +484,12 @@ impl Shell {
         if Keeper::keys(cx).is_some_and(|keys| keys.contains(&key)) {
             return self.vault_message(
                 false,
-                format!("A key named \"{name}\" already exists."),
+                fill("A key named \"{}\" already exists.", &[name]),
                 cx,
             );
         }
         if Keeper::edit(cx, |v| v.set(key, private)).is_none() {
-            return self.vault_message(false, "Unlock the vault first.", cx);
+            return self.vault_message(false, tr("Unlock the vault first."), cx);
         }
         self.persist_vault(cx);
         if let Some(ui) = self.vault_ui.as_mut() {
@@ -490,17 +498,17 @@ impl Shell {
             let (n, p) = (ui.key_name.clone(), ui.key_path.clone());
             self.clear_inputs(&[&n, &p], cx);
         }
-        self.notify_toast(ToastKind::Positive, format!("Key {name} saved"), cx);
+        self.notify_toast(ToastKind::Positive, fill("Key {} saved", &[name]), cx);
         cx.notify();
     }
 
     pub(super) fn generate_key(&mut self, cx: &mut Context<Self>) {
         let name = self.key_name_input(cx);
         if name.is_empty() {
-            return self.vault_message(false, "Give the key a name first.", cx);
+            return self.vault_message(false, tr("Give the key a name first."), cx);
         }
         if Keeper::len(cx).is_none() {
-            return self.vault_message(false, "Unlock the vault first.", cx);
+            return self.vault_message(false, tr("Unlock the vault first."), cx);
         }
         match keys::generate_ed25519(&format!("tern:{name}")) {
             Ok(g) => self.store_key(&name, g.private, g.info, cx),
@@ -514,21 +522,25 @@ impl Shell {
         };
         let path = ui.key_path.read(cx).text().trim().to_owned();
         if path.is_empty() {
-            return self.vault_message(false, "Enter the path of a private key file.", cx);
+            return self.vault_message(false, tr("Enter the path of a private key file."), cx);
         }
         if Keeper::len(cx).is_none() {
-            return self.vault_message(false, "Unlock the vault first.", cx);
+            return self.vault_message(false, tr("Unlock the vault first."), cx);
         }
         let file = expand_home(&path);
         let text = match std::fs::metadata(&file) {
             Ok(m) if m.len() > MAX_KEY_FILE => {
-                return self.vault_message(false, "That file is too large to be a key.", cx);
+                return self.vault_message(false, tr("That file is too large to be a key."), cx);
             }
             Ok(_) => match std::fs::read_to_string(&file) {
                 Ok(t) => t,
-                Err(e) => return self.vault_message(false, format!("{path}: {e}"), cx),
+                Err(e) => {
+                    return self.vault_message(false, fill("{}: {}", &[&path, &e.to_string()]), cx);
+                }
             },
-            Err(e) => return self.vault_message(false, format!("{path}: {e}"), cx),
+            Err(e) => {
+                return self.vault_message(false, fill("{}: {}", &[&path, &e.to_string()]), cx);
+            }
         };
         let info = match keys::inspect(&text) {
             Ok(i) => i,
@@ -552,7 +564,7 @@ impl Shell {
         match keys::inspect(private.expose_secret()) {
             Ok(info) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(info.public));
-                self.notify_toast(ToastKind::Positive, "Public key copied", cx);
+                self.notify_toast(ToastKind::Positive, tr("Public key copied"), cx);
             }
             Err(e) => self.notify_toast(ToastKind::Critical, e.to_string(), cx),
         }
@@ -602,7 +614,7 @@ impl Shell {
             return self.vault_message(false, problem, cx);
         }
         let Some(task) = Keeper::rekey(secret(&current), secret(&new), cx) else {
-            return self.vault_message(false, "There is no vault yet.", cx);
+            return self.vault_message(false, tr("There is no vault yet."), cx);
         };
         if let Some(ui) = self.vault_ui.as_mut() {
             ui.busy = true;
@@ -625,16 +637,20 @@ impl Shell {
                             s.clear_inputs(&[&all[0], &all[1], &all[2]], cx);
                         }
                         let text = if had_pin {
-                            "Vault passphrase changed. The PIN was removed: set it again"
+                            tr("Vault passphrase changed. The PIN was removed: set it again")
                         } else {
-                            "Vault passphrase changed"
+                            tr("Vault passphrase changed")
                         };
                         s.notify_toast(ToastKind::Positive, text, cx);
                     }
                     Err(VaultError::WrongPassphrase) => {
-                        s.vault_message(false, "The current passphrase is wrong.", cx)
+                        s.vault_message(false, tr("The current passphrase is wrong."), cx)
                     }
-                    Err(e) => s.vault_message(false, format!("Could not change it: {e}"), cx),
+                    Err(e) => s.vault_message(
+                        false,
+                        fill("Could not change it: {}", &[&e.to_string()]),
+                        cx,
+                    ),
                 }
                 cx.notify();
             });
@@ -650,9 +666,9 @@ impl Shell {
                 self.notify_toast(
                     ToastKind::Default,
                     if on {
-                        "The vault will open the first time tern needs it"
+                        tr("The vault will open the first time tern needs it")
                     } else {
-                        "Removed from the Keychain"
+                        tr("Removed from the Keychain")
                     },
                     cx,
                 );
@@ -724,7 +740,7 @@ mod tests {
                 },
                 &[]
             ),
-            ("laptop".to_owned(), "SSH key".to_owned())
+            ("laptop".to_owned(), tr("SSH key").to_owned())
         );
         assert_eq!(
             describe_entry(
@@ -733,7 +749,7 @@ mod tests {
                 },
                 &[]
             ),
-            ("~/.ssh/id".to_owned(), "Key passphrase".to_owned())
+            ("~/.ssh/id".to_owned(), tr("Key passphrase").to_owned())
         );
     }
 
@@ -741,11 +757,11 @@ mod tests {
     fn each_passphrase_mistake_gets_its_own_message() {
         assert_eq!(
             passphrase_problem("", "n", "n"),
-            Some("Enter the current passphrase.")
+            Some(tr("Enter the current passphrase."))
         );
         assert_eq!(
             passphrase_problem("c", "", ""),
-            Some("Enter a new passphrase.")
+            Some(tr("Enter a new passphrase."))
         );
         assert!(
             passphrase_problem("c", "n", "m")

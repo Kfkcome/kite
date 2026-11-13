@@ -9,6 +9,7 @@ use gpui::{AppContext as _, Context};
 use serde::Deserialize;
 
 use super::{Shell, Toast, ToastKind};
+use crate::i18n::{fill, tr};
 use crate::settings;
 
 const LATEST_URL: &str = "https://api.github.com/repos/your-moon/tern/releases/latest";
@@ -142,9 +143,9 @@ impl Shell {
                     s.toast(
                         Toast::new(
                             ToastKind::Default,
-                            format!("tern {} is available", found.version),
+                            fill("tern {} is available", &[found.version.as_str()]),
                         )
-                        .action("Download", move |_, _, cx| cx.open_url(&url)),
+                        .action(tr("Download"), move |_, _, cx| cx.open_url(&url)),
                         cx,
                     );
                 });

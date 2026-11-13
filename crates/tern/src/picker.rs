@@ -15,6 +15,7 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 use tern_ssh::HostEntry;
 
 use crate::empty_state;
+use crate::i18n::{fill, tr};
 use crate::shell::Shell;
 use crate::shell::connections_ui::button;
 use crate::sidebar;
@@ -257,11 +258,11 @@ pub fn render(
             )
             .when(
                 picker.query.is_empty() && recent.contains(&host.alias),
-                |el| el.child(div().text_xs().text_color(t.faint).child("Recent")),
+                |el| el.child(div().text_xs().text_color(t.faint).child(tr("Recent"))),
             )
     });
     let query: SharedString = if picker.query.is_empty() {
-        "Connect to a host…".into()
+        tr("Connect to a host…").into()
     } else {
         picker.query.clone().into()
     };
@@ -320,10 +321,10 @@ pub fn render(
                     if empty_state::picker_is_empty(&picker.query, hosts.len(), matches.len()) {
                         return el.child(
                             div().py(px(24.)).child(
-                                empty_state::view(t, empty_state::HOSTS, "No hosts yet.")
+                                empty_state::view(t, empty_state::HOSTS, tr("No hosts yet."))
                                     .gap(px(12.))
                                     .child(
-                                        button("picker-empty-new", "New connection", true, t)
+                                        button("picker-empty-new", tr("New connection"), true, t)
                                             .on_click(cx.listener(|s, _, w, cx| {
                                                 s.close_picker(w, cx);
                                                 s.open_form(None, None, w, cx);
@@ -339,9 +340,9 @@ pub fn render(
                             .justify_center()
                             .text_sm()
                             .text_color(t.muted)
-                            .child(SharedString::from(format!(
+                            .child(SharedString::from(fill(
                                 "No hosts match. Enter connects to \"{}\".",
-                                picker.query.trim()
+                                &[picker.query.trim()],
                             ))),
                     )
                 }),
@@ -355,9 +356,9 @@ pub fn render(
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .child(hint("↑ ↓", "Navigate", t))
-                .child(hint("↵", "Connect", t))
-                .child(hint("Esc", "Close", t)),
+                .child(hint("↑ ↓", tr("Navigate"), t))
+                .child(hint("↵", tr("Connect"), t))
+                .child(hint("Esc", tr("Close"), t)),
         );
     deferred(
         anchored().position(point(px(0.), px(0.))).child(

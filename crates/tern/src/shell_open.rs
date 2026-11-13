@@ -14,6 +14,7 @@ use gpui::{
 use tern_ssh::{ConnectSpec, HostEntry};
 
 use super::*;
+use crate::i18n::{fill, tr};
 
 impl Shell {
     /// Focuses the host's existing pane when one is open — the first, in tab order, then
@@ -124,8 +125,8 @@ impl Shell {
                         .filter(|(ix, _, _)| *ix != shell.active || shell.settings_page.is_some())
                     {
                         shell.toast(
-                            Toast::new(ToastKind::Critical, format!("{alias} disconnected"))
-                                .action("Show", move |shell, window, cx| {
+                            Toast::new(ToastKind::Critical, fill("{} disconnected", &[&alias]))
+                                .action(tr("Show"), move |shell, window, cx| {
                                     // The pane may have moved to another slot since this toast.
                                     if let Some(ix) = shell.tabs.iter().position(|tab| {
                                         tab.panes.iter().any(|pane| pane.id == pane_id)

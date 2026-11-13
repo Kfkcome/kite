@@ -15,6 +15,7 @@ use gpui::{
 use tern_ssh::HostEntry;
 
 use crate::connections::Connection;
+use crate::i18n::tr;
 use crate::icons::{self, icon};
 use crate::indicator::Dot;
 use crate::shell::Shell;
@@ -128,7 +129,7 @@ pub fn render(
                     .pt(px(12.))
                     .text_size(px(12.))
                     .text_color(t.muted)
-                    .child("No hosts match"),
+                    .child(tr("No hosts match")),
             );
         }
     } else {
@@ -193,7 +194,7 @@ fn empty_state(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
         .child(crate::empty_state::view(
             t,
             crate::empty_state::HOSTS,
-            "No hosts yet.",
+            tr("No hosts yet."),
         ))
         .child(
             div()
@@ -209,7 +210,7 @@ fn empty_state(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
                 .bg(t.accent)
                 .text_color(t.on_accent)
                 .on_click(cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx)))
-                .child("New connection"),
+                .child(tr("New connection")),
         )
         .child(
             div()
@@ -225,7 +226,7 @@ fn empty_state(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
                 .hover_fade("import-ssh-config", t.row_hover, t.row_active)
                 .text_color(t.text)
                 .on_click(cx.listener(|s, _, w, cx| s.open_import(w, cx)))
-                .child("Import from ~/.ssh/config…"),
+                .child(tr("Import from ~/.ssh/config…")),
         )
 }
 
@@ -266,11 +267,11 @@ fn header(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
                 .text_size(px(13.))
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(t.text.opacity(crate::theme::by_dpi(0.8, 0.9)))
-                .child("Hosts"),
+                .child(tr("Hosts")),
         )
         .child(
             icon_button("new-connection", icons::PLUS, 24., 16., t)
-                .icon_button("New connection", t)
+                .icon_button(tr("New connection"), t)
                 .on_click(cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx))),
         )
 }
@@ -432,7 +433,7 @@ fn row(
         .child(
             div()
                 .id((scope_more(scope), ix))
-                .icon_button("Host actions", t)
+                .icon_button(tr("Host actions"), t)
                 .absolute()
                 .right(px(4.))
                 .top(px(5.))
@@ -483,11 +484,11 @@ fn footer(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
                 .hover_fade("footer-sync", gpui::transparent_black(), t.ink(0.09))
                 .on_click(cx.listener(|s, _, w, cx| s.open_settings_at_sync(w, cx)))
                 .child(icon(icons::CLOUD).size(px(16.)).text_color(t.muted))
-                .child("Sync"),
+                .child(tr("Sync")),
         )
         .child(
             icon_button("footer-settings", icons::SETTINGS, 28., 15., t)
-                .icon_button("Settings", t)
+                .icon_button(tr("Settings"), t)
                 .on_click(cx.listener(|s, _, w, cx| s.toggle_settings(w, cx))),
         )
 }

@@ -10,6 +10,7 @@ use gpui::{
 use tern_term::{CursorStyleSetting, TerminalEvent, TerminalOptions};
 
 use super::Shell;
+use crate::i18n::{fill, tr};
 use crate::session::Session;
 use crate::settings::{CursorStyle, Settings};
 use crate::settings_widgets as w;
@@ -76,7 +77,7 @@ impl Shell {
         };
         let meta = div()
             .id("toggle-option-meta")
-            .switch("Use Option as Meta", s.option_as_meta)
+            .switch(tr("Use Option as Meta"), s.option_as_meta)
             .cursor_pointer()
             .on_click(cx.listener(|s, _, _, cx| {
                 s.update_settings(|st| st.option_as_meta = !st.option_as_meta, cx);
@@ -86,9 +87,9 @@ impl Shell {
 
         let mut shapes = div().flex().items_center().gap(px(6.));
         for (ix, (style, label)) in [
-            (CursorStyle::Block, "Block"),
-            (CursorStyle::Bar, "Bar"),
-            (CursorStyle::Underline, "Underline"),
+            (CursorStyle::Block, tr("Block")),
+            (CursorStyle::Bar, tr("Bar")),
+            (CursorStyle::Underline, tr("Underline")),
         ]
         .into_iter()
         .enumerate()
@@ -105,8 +106,11 @@ impl Shell {
         }
 
         let lines = s.scrollback_lines;
-        let (minus, value, plus) =
-            w::stepper(&t, "scrollback", format!("{} lines", thousands(lines)));
+        let (minus, value, plus) = w::stepper(
+            &t,
+            "scrollback",
+            format!("{} {}", thousands(lines), tr("lines")),
+        );
         let scrollback = div()
             .flex()
             .items_center()
@@ -145,29 +149,29 @@ impl Shell {
                 |shell, e: &gpui::ClickEvent, _, cx| shell.open_font_menu(e.position(), cx),
             ));
         w::page_column()
-            .child(w::page_header(&t, "Terminal"))
+            .child(w::page_header(&t, tr("Terminal")))
             .child(w::section(
                 &t,
-                "Font",
+                tr("Font"),
                 w::card(&t).child(w::row(
                     &t,
                     true,
-                    "Font",
-                    Some("Monospace fonts on this Mac; a Nerd Font \"Mono\" keeps icons one cell wide".into()),
+                    tr("Font"),
+                    Some(tr("Monospace fonts on this Mac; a Nerd Font \"Mono\" keeps icons one cell wide").into()),
                     font,
                 )),
             ))
             .child(w::section(
                 &t,
-                "Logging",
+                tr("Logging"),
                 w::card(&t).child(w::row(
                     &t,
                     true,
-                    "Log every session",
+                    tr("Log every session"),
                     Some(
-                        format!(
+                        fill(
                             "New tabs write plain text to {}/sessions; or start one from a tab's menu",
-                            crate::settings::log_dir_label()
+                            &[crate::settings::log_dir_label()],
                         )
                         .into(),
                     ),
@@ -176,13 +180,13 @@ impl Shell {
             ))
             .child(w::section(
                 &t,
-                "Startup",
+                tr("Startup"),
                 w::card(&t).child(w::row(
                     &t,
                     true,
-                    "Reopen tabs on launch",
+                    tr("Reopen tabs on launch"),
                     Some(
-                        "Connections come back waiting for Enter, so none dials until you ask"
+                        tr("Connections come back waiting for Enter, so none dials until you ask")
                             .into(),
                     ),
                     reopen,
@@ -190,50 +194,50 @@ impl Shell {
             ))
             .child(w::section(
                 &t,
-                "Cursor",
+                tr("Cursor"),
                 w::card(&t)
                     .child(w::row(
                         &t,
                         true,
-                        "Shape",
+                        tr("Shape"),
                         Some("Until the program on the remote asks for its own".into()),
                         shapes,
                     ))
                     .child(w::row(
                         &t,
                         false,
-                        "Blink",
+                        tr("Blink"),
                         None,
-                        toggle("cursor-blink", "Cursor blink", s.cursor_blink, |st| {
+                        toggle("cursor-blink", tr("Cursor blink"), s.cursor_blink, |st| {
                             st.cursor_blink = !st.cursor_blink
                         }),
                     )),
             ))
             .child(w::section(
                 &t,
-                "Output",
+                tr("Output"),
                 w::card(&t).child(w::row(
                     &t,
                     true,
-                    "Scrollback",
+                    tr("Scrollback"),
                     Some(if cfg!(target_os = "macos") {
-                        "Lines kept per terminal; ⌘F searches them"
+                        tr("Lines kept per terminal; ⌘F searches them")
                     } else {
-                        "Lines kept per terminal; Ctrl+Shift+F searches them"
+                        tr("Lines kept per terminal; Ctrl+Shift+F searches them")
                     }.into()),
                     scrollback,
                 )),
             ))
             .child(w::section(
                 &t,
-                "Keyboard and mouse",
+                tr("Keyboard and mouse"),
                 w::card(&t)
                     .child(w::row(
                         &t,
                         true,
-                        "Use Option as Meta",
+                        tr("Use Option as Meta"),
                         Some(
-                            "⌥B, ⌥F and friends reach the shell; off types the macOS character"
+                            tr("⌥B, ⌥F and friends reach the shell; off types the macOS character")
                                 .into(),
                         ),
                         meta,
@@ -241,20 +245,20 @@ impl Shell {
                     .child(w::row(
                         &t,
                         false,
-                        "Copy on select",
-                        Some("Finishing a selection copies it".into()),
-                        toggle("copy-on-select", "Copy on select", s.copy_on_select, |st| {
+                        tr("Copy on select"),
+                        Some(tr("Finishing a selection copies it").into()),
+                        toggle("copy-on-select", tr("Copy on select"), s.copy_on_select, |st| {
                             st.copy_on_select = !st.copy_on_select
                         }),
                     ))
                     .child(w::row(
                         &t,
                         false,
-                        "Middle-click pastes",
+                        tr("Middle-click pastes"),
                         None,
                         toggle(
                             "middle-paste",
-                            "Middle-click pastes",
+                            tr("Middle-click pastes"),
                             s.middle_click_paste,
                             |st| st.middle_click_paste = !st.middle_click_paste,
                         ),
@@ -262,16 +266,16 @@ impl Shell {
             ))
             .child(w::section(
                 &t,
-                "Bell",
+                tr("Bell"),
                 w::card(&t)
                     .child(w::row(
                         &t,
                         true,
-                        "Flash the terminal",
+                        tr("Flash the terminal"),
                         None,
                         toggle(
                             "visual-bell",
-                            "Flash the terminal on bell",
+                            tr("Flash the terminal on bell"),
                             s.visual_bell,
                             |st| st.visual_bell = !st.visual_bell,
                         ),
@@ -279,11 +283,11 @@ impl Shell {
                     .child(w::row(
                         &t,
                         false,
-                        "Bounce the Dock icon",
-                        Some("When tern is in the background".into()),
+                        tr("Bounce the Dock icon"),
+                        Some(tr("When tern is in the background").into()),
                         toggle(
                             "bell-dock",
-                            "Bounce the Dock icon on bell",
+                            tr("Bounce the Dock icon on bell"),
                             s.bell_bounces_dock,
                             |st| st.bell_bounces_dock = !st.bell_bounces_dock,
                         ),

@@ -9,6 +9,7 @@ mod devkeys;
 mod empty_state;
 mod forward_spec;
 mod hover;
+mod i18n;
 mod icons;
 mod indicator;
 mod keeper;
@@ -98,11 +99,12 @@ fn main() {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             platform::register_fonts(cx);
+            let loaded = settings::dir().map(|d| settings::Settings::load(&d));
+            if let Some(settings) = &loaded {
+                i18n::install(settings.language);
+            }
             chrome::init_menus(cx);
-            let keychain = settings::dir()
-                .map(|d| settings::Settings::load(&d).vault_keychain)
-                .unwrap_or(false);
-            keeper::Keeper::install(keychain, cx);
+            keeper::Keeper::install(loaded.as_ref().is_some_and(|s| s.vault_keychain), cx);
             let keymap = settings::dir()
                 .map(|d| keymap::Keymap::load(&d))
                 .unwrap_or_default();

@@ -14,6 +14,7 @@ use tern_ssh::HostEntry;
 use super::connections_ui::{button, note};
 use super::{Shell, ToastKind};
 use crate::connections::{self, Connection};
+use crate::i18n::{fill, tr};
 use crate::picker;
 
 pub(super) struct ImportSheet {
@@ -99,12 +100,12 @@ impl Shell {
         self.connections = next;
         self.refresh_hosts();
         self.close_import(window, cx);
-        let plural = if count == 1 { "" } else { "s" };
-        self.notify_toast(
-            ToastKind::Positive,
-            format!("Imported {count} host{plural}"),
-            cx,
-        );
+        let text = if count == 1 {
+            fill("Imported {} host", &[&count.to_string()])
+        } else {
+            fill("Imported {} hosts", &[&count.to_string()])
+        };
+        self.notify_toast(ToastKind::Positive, text, cx);
     }
 
     fn on_import_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -146,7 +147,7 @@ impl Shell {
                     .justify_center()
                     .text_sm()
                     .text_color(t.muted)
-                    .child("No hosts found in ~/.ssh/config"),
+                    .child(tr("No hosts found in ~/.ssh/config")),
             );
         }
         for (ix, r) in sheet.rows.iter().enumerate() {
@@ -204,7 +205,7 @@ impl Shell {
                             .text_xs()
                             .text_color(t.muted)
                             .child(SharedString::from(if off {
-                                "Already in tern".to_owned()
+                                tr("Already in tern").to_owned()
                             } else {
                                 crate::sidebar::address(&r.host)
                             })),
@@ -212,8 +213,8 @@ impl Shell {
             );
         }
         let label = match chosen {
-            0 => "Import".to_owned(),
-            n => format!("Import {n}"),
+            0 => tr("Import").to_owned(),
+            n => fill("Import {}", &[&n.to_string()]),
         };
         let card = div()
             .id("import-sheet")
@@ -236,9 +237,9 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap(px(2.))
-                    .child(div().text_size(px(14.)).child("Import from ~/.ssh/config"))
+                    .child(div().text_size(px(14.)).child(tr("Import from ~/.ssh/config")))
                     .child(note(
-                        "Copies the checked hosts into tern once. The file is never read again or changed.",
+                        tr("Copies the checked hosts into tern once. The file is never read again or changed."),
                         t,
                     )),
             )
@@ -253,7 +254,7 @@ impl Shell {
                     .justify_end()
                     .gap(px(8.))
                     .child(
-                        button("import-cancel", "Cancel", false, t).on_click(cx.listener(
+                        button("import-cancel", tr("Cancel"), false, t).on_click(cx.listener(
                             |shell, _, window, cx| shell.close_import(window, cx),
                         )),
                     )

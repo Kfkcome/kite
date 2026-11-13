@@ -12,6 +12,7 @@ use tern_ssh::Forward;
 
 use super::{Shell, ToastKind};
 use crate::forward_spec;
+use crate::i18n::fill;
 use crate::keymap::{self, Keymap, ShortcutId};
 use crate::session::Status;
 use crate::session::{Session, SessionNote};
@@ -330,7 +331,7 @@ impl Shell {
         match note {
             SessionNote::ForwardFailed { forward, error } => self.notify_toast(
                 ToastKind::Critical,
-                format!("Port forward {forward} failed: {error}"),
+                fill("Port forward {} failed: {}", &[forward, error]),
                 cx,
             ),
             SessionNote::PasswordPrompt => {
@@ -342,7 +343,8 @@ impl Shell {
                 let combo = cx.global::<Keymap>().combo(ShortcutId::FillPassword);
                 // Unbound, there is no shortcut to name.
                 if in_front && !combo.is_empty() {
-                    let text = format!("{} fills the password", keymap::badge(combo));
+                    let shown = keymap::badge(combo);
+                    let text = fill("{} fills the password", &[&shown]);
                     self.notify_toast(ToastKind::Default, text, cx);
                 }
             }

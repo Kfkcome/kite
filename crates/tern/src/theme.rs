@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gpui::{Hsla, Pixels, hsla, px, rgb};
+use gpui::{FontFallbacks, Hsla, Pixels, hsla, px, rgb};
 use tern_term::TerminalTheme;
 
 use themes::Scheme;
@@ -22,6 +22,31 @@ pub const SPACE_SM: f32 = 8.0;
 pub const SPACE_LG: f32 = 16.0;
 pub const UI_FONT: &str = "Geist";
 pub const MONO_FONT: &str = "Geist Mono";
+
+/// Geist for Latin, then a system CJK face.
+///
+/// Geist has no Chinese glyphs. On macOS the system cascade is appended only when a font
+/// lists a fallback of its own, so the list has to be set or the characters do not draw.
+pub fn ui_font() -> gpui::Font {
+    let mut font = gpui::font(UI_FONT);
+    font.fallbacks = Some(cjk_fallbacks());
+    font
+}
+
+fn cjk_fallbacks() -> FontFallbacks {
+    use std::sync::OnceLock;
+    static CJK: OnceLock<FontFallbacks> = OnceLock::new();
+    CJK.get_or_init(|| {
+        FontFallbacks::from_fonts(vec![
+            "PingFang SC".into(),
+            "Hiragino Sans GB".into(),
+            "Heiti SC".into(),
+            "PingFang TC".into(),
+            "Noto Sans CJK SC".into(),
+        ])
+    })
+    .clone()
+}
 pub const CONTROL_RADIUS: f32 = 6.0;
 
 /// Whether the window is on a standard-density display (scale factor below 1.5) with sharper

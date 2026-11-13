@@ -13,6 +13,7 @@ use tern_vault::{Key, Vault, VaultError};
 
 use super::{Shell, Toast, ToastKind};
 use crate::connections::{self, Connection, DEFAULT_KEEP_ALIVE, Draft};
+use crate::i18n::{fill, tr};
 use crate::keeper::Keeper;
 use crate::sidebar;
 use crate::text_input::{InputColors, TextInput};
@@ -123,9 +124,9 @@ impl Shell {
             ..Connection::default()
         });
         let password_hint = if editing.is_some() {
-            "Unchanged"
+            tr("Unchanged")
         } else {
-            "Optional, saved to the vault"
+            tr("Optional, saved to the vault")
         };
         let advanced_open = advanced::in_use(&d);
         let form = ConnectionForm {
@@ -145,13 +146,17 @@ impl Shell {
             ),
             user: field("deploy", false, d.user),
             key: field(
-                "~/.ssh/id_ed25519 (optional)",
+                tr("~/.ssh/id_ed25519 (optional)"),
                 false,
                 d.identity_file.unwrap_or_default(),
             ),
-            group: field("No group", false, d.group.unwrap_or_default()),
-            tags: field("comma separated, e.g. eu, db", false, d.tags.join(", ")),
-            proxy_jump: field("bastion, or user@host:port (optional)", false, d.proxy_jump),
+            group: field(tr("No group"), false, d.group.unwrap_or_default()),
+            tags: field(tr("comma separated, e.g. eu, db"), false, d.tags.join(", ")),
+            proxy_jump: field(
+                tr("bastion, or user@host:port (optional)"),
+                false,
+                d.proxy_jump,
+            ),
             keep_alive: field(
                 "30",
                 false,
@@ -160,17 +165,17 @@ impl Shell {
             forward_agent: d.forward_agent,
             proxy_command: d.proxy_command,
             vault_key: field(
-                "Name of a key in the vault (optional)",
+                tr("Name of a key in the vault (optional)"),
                 false,
                 d.vault_key.unwrap_or_default(),
             ),
             password_command: field(
-                "Prints the password, e.g. gopass show -o …",
+                tr("Prints the password, e.g. gopass show -o …"),
                 false,
                 d.password_command.unwrap_or_default(),
             ),
             sudo_password_command: field(
-                "e.g. gopass show -o …",
+                tr("e.g. gopass show -o …"),
                 false,
                 d.sudo_password_command.unwrap_or_default(),
             ),
@@ -178,11 +183,11 @@ impl Shell {
             forwards: d
                 .forwards
                 .iter()
-                .map(|f| field(FORWARD_HINT, false, f.clone()))
+                .map(|f| field(tr(FORWARD_HINT), false, f.clone()))
                 .collect(),
             password: field(password_hint, true, String::new()),
-            vault_pass: field("Vault passphrase", true, String::new()),
-            vault_repeat: field("Repeat vault passphrase", true, String::new()),
+            vault_pass: field(tr("Vault passphrase"), true, String::new()),
+            vault_repeat: field(tr("Repeat vault passphrase"), true, String::new()),
             error: None,
             busy: false,
             _repaint: Vec::new(),
@@ -218,7 +223,7 @@ impl Shell {
             cursor: t.accent,
             selection: t.accent.opacity(0.35),
         };
-        let input = cx.new(|cx| TextInput::new(FORWARD_HINT.to_owned(), false, colors, cx));
+        let input = cx.new(|cx| TextInput::new(tr(FORWARD_HINT).to_owned(), false, colors, cx));
         window.focus(&input.focus_handle(cx), cx);
         if let Some(form) = self.form.as_mut() {
             form._repaint
@@ -392,7 +397,7 @@ impl Shell {
         if password.is_empty() {
             self.notify_toast(
                 ToastKind::Positive,
-                format!("Saved {}", draft.name.trim()),
+                fill("Saved {}", &[draft.name.trim()]),
                 cx,
             );
             return self.close_form(window, cx);
@@ -450,7 +455,11 @@ impl Shell {
                 }
                 match result {
                     Ok(()) => {
-                        shell.notify_toast(ToastKind::Positive, "Password saved in the vault", cx);
+                        shell.notify_toast(
+                            ToastKind::Positive,
+                            tr("Password saved in the vault"),
+                            cx,
+                        );
                         shell.close_form(window, cx);
                     }
                     Err(e) => {
@@ -458,11 +467,10 @@ impl Shell {
                             form.busy = false;
                             form.error = Some(match e {
                                 VaultError::WrongPassphrase => {
-                                    "Wrong vault passphrase. The connection is saved; the \
-                                     password is not."
+                                    tr("Wrong vault passphrase. The connection is saved; the password is not.")
                                         .into()
                                 }
-                                other => format!("Vault: {other}"),
+                                other => fill("Vault: {}", &[&other.to_string()]),
                             });
                         }
                         cx.notify();
@@ -496,8 +504,8 @@ impl Shell {
                 if let Some(c) = removed {
                     let name = c.name.clone();
                     self.toast(
-                        Toast::new(ToastKind::Default, format!("Removed {name}")).action(
-                            "Undo",
+                        Toast::new(ToastKind::Default, fill("Removed {}", &[&name])).action(
+                            tr("Undo"),
                             move |s, _, cx| {
                                 let at = ix.min(s.connections.len());
                                 let mut next = s.connections.clone();
@@ -530,9 +538,9 @@ impl Shell {
         let step = self.vault_step(cx);
         let viewport = window.viewport_size();
         let title = if form.editing.is_some() {
-            "Edit connection"
+            tr("Edit connection")
         } else {
-            "New connection"
+            tr("New connection")
         };
         // Existing groups, one click to reuse a spelling instead of typing it again.
         let groups = div().flex().flex_wrap().gap(px(6.)).children(
@@ -565,32 +573,34 @@ impl Shell {
             .gap(px(10.))
             .px(px(16.))
             .py(px(12.))
-            .child(row("Name", &form.name, t))
+            .child(row(tr("Name"), &form.name, t))
             .child(
                 div()
                     .flex()
                     .gap(px(10.))
-                    .child(div().flex_1().child(row("Host", &form.host, t)))
-                    .child(div().w(px(96.)).child(row("Port", &form.port, t))),
+                    .child(div().flex_1().child(row(tr("Host"), &form.host, t)))
+                    .child(div().w(px(96.)).child(row(tr("Port"), &form.port, t))),
             )
-            .child(row("User", &form.user, t))
-            .child(row("Key file", &form.key, t))
-            .child(row("Group", &form.group, t))
+            .child(row(tr("User"), &form.user, t))
+            .child(row(tr("Key file"), &form.key, t))
+            .child(row(tr("Group"), &form.group, t))
             .child(groups)
-            .child(row("Tags", &form.tags, t))
-            .child(row("Password", &form.password, t))
+            .child(row(tr("Tags"), &form.tags, t))
+            .child(row(tr("Password"), &form.password, t))
             .child(self.advanced_section(form, cx));
         match step {
             VaultStep::None => {}
-            VaultStep::Unlock => body = body.child(row("Vault passphrase", &form.vault_pass, t)),
+            VaultStep::Unlock => {
+                body = body.child(row(tr("Vault passphrase"), &form.vault_pass, t))
+            }
             VaultStep::Create => {
                 body = body
                     .child(note(
-                        "No vault yet: this creates one, locked with this passphrase.",
+                        tr("No vault yet: this creates one, locked with this passphrase."),
                         t,
                     ))
-                    .child(row("New vault passphrase", &form.vault_pass, t))
-                    .child(row("Repeat passphrase", &form.vault_repeat, t));
+                    .child(row(tr("New vault passphrase"), &form.vault_pass, t))
+                    .child(row(tr("Repeat passphrase"), &form.vault_repeat, t));
             }
         }
         let busy = form.busy;
@@ -648,14 +658,19 @@ impl Shell {
                                 .text_color(t.danger)
                                 .children(form.error.clone().map(SharedString::from)),
                         )
-                        .child(button("form-cancel", "Cancel", false, t).on_click(
+                        .child(button("form-cancel", tr("Cancel"), false, t).on_click(
                             cx.listener(|shell, _, window, cx| shell.close_form(window, cx)),
                         ))
                         .child(
-                            button("form-save", if busy { "Saving…" } else { "Save" }, true, t)
-                                .on_click(cx.listener(|shell, _, window, cx| {
-                                    shell.submit_form(window, cx)
-                                })),
+                            button(
+                                "form-save",
+                                if busy { tr("Saving…") } else { tr("Save") },
+                                true,
+                                t,
+                            )
+                            .on_click(
+                                cx.listener(|shell, _, window, cx| shell.submit_form(window, cx)),
+                            ),
                         ),
                 );
         Some(

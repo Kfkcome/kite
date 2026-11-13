@@ -23,6 +23,7 @@ use gpui::{
 };
 
 use super::*;
+use crate::i18n::tr;
 
 impl Shell {
     /// The scheme a host's tabs use: its own, else the default, else zeron's (`None`).
@@ -47,6 +48,40 @@ impl Shell {
         self.install_input_colors(cx);
         self.restyle_tabs(cx);
         cx.notify();
+    }
+
+    /// Switches the interface language and the macOS menu bar when the setting says to.
+    pub(crate) fn apply_language(&mut self, cx: &mut Context<Self>) {
+        if !crate::i18n::install(self.settings.language) {
+            return;
+        }
+        crate::chrome::install_menus(cx);
+        self.retitle_fields(cx);
+        cx.notify();
+    }
+
+    /// Placeholders are fixed when a field is created, so a language change rewrites them.
+    fn retitle_fields(&self, cx: &mut Context<Self>) {
+        let mut set = |input: &gpui::Entity<crate::text_input::TextInput>, label: &'static str| {
+            input.update(cx, |field, cx| {
+                field.set_placeholder(crate::i18n::tr(label), cx);
+            });
+        };
+        set(&self.hostlist.search, tr("Search hosts"));
+        if let Some(ui) = &self.vault_ui {
+            set(&ui.unlock, tr("Vault passphrase"));
+            set(&ui.current, tr("Current passphrase"));
+            set(&ui.new, tr("New passphrase"));
+            set(&ui.confirm, tr("Repeat new passphrase"));
+            set(&ui.pin, tr("Vault PIN"));
+            set(&ui.pin_new, tr("New PIN, 4 to 8 digits"));
+            set(&ui.pin_repeat, tr("Repeat PIN"));
+            set(&ui.key_name, tr("Key name, e.g. laptop"));
+        }
+        if let Some(ui) = &self.sync_ui {
+            set(&ui.token_input, tr("ghp_… with the gist scope"));
+            set(&ui.pass_input, tr("Vault passphrase"));
+        }
     }
 
     /// Standard-density mode for this frame, from the monitor the window is on right now.

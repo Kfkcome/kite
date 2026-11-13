@@ -14,6 +14,7 @@ use gpui::{
 use tern_sync::{Plan, TokenSource};
 
 use super::{Shell, ToastKind};
+use crate::i18n::{fill, tr};
 use crate::keeper::Keeper;
 use crate::settings_widgets as w;
 use crate::text_input::{InputColors, TextInput};
@@ -43,8 +44,8 @@ struct Ask {
 
 pub(super) struct SyncUi {
     repo_input: Entity<TextInput>,
-    token_input: Entity<TextInput>,
-    pass_input: Entity<TextInput>,
+    pub(super) token_input: Entity<TextInput>,
+    pub(super) pass_input: Entity<TextInput>,
     token_source: Option<TokenSource>,
     busy: bool,
     /// The last outcome: ok?, text.
@@ -90,11 +91,11 @@ impl Default for AutoSync {
 
 fn item_label(name: &str) -> &'static str {
     match name {
-        "hosts.json" => "Connections",
-        "settings.json" => "Settings",
-        "keymap.json" => "Shortcuts",
-        "snippets.json" => "Snippets",
-        _ => "Vault",
+        "hosts.json" => tr("Connections"),
+        "settings.json" => tr("Settings"),
+        "keymap.json" => tr("Shortcuts"),
+        "snippets.json" => tr("Snippets"),
+        _ => tr("Vault"),
     }
 }
 
@@ -113,8 +114,8 @@ impl Shell {
             selection: t.accent.opacity(0.35),
         };
         let token_input =
-            cx.new(|cx| TextInput::new("ghp_… with the gist scope", true, colors, cx));
-        let pass_input = cx.new(|cx| TextInput::new("Vault passphrase", true, colors, cx));
+            cx.new(|cx| TextInput::new(tr("ghp_… with the gist scope"), true, colors, cx));
+        let pass_input = cx.new(|cx| TextInput::new(tr("Vault passphrase"), true, colors, cx));
         let current = self.settings.sync_remote.clone().unwrap_or_default();
         let repo_input = cx.new(|cx| {
             let mut i = TextInput::new("git@github.com:you/tern-sync.git", false, colors, cx);
@@ -161,7 +162,7 @@ impl Shell {
         let saved = tern_sync::save_token(&token);
         ui.token_input.update(cx, |i, cx| i.set_text("", cx));
         match saved {
-            Ok(()) => self.notify_toast(ToastKind::Positive, "GitHub token saved", cx),
+            Ok(()) => self.notify_toast(ToastKind::Positive, tr("GitHub token saved"), cx),
             Err(e) => self.notify_toast(ToastKind::Critical, e.to_string(), cx),
         }
         self.refresh_token_source(cx);
@@ -177,8 +178,8 @@ impl Shell {
         self.notify_toast(
             ToastKind::Positive,
             match value {
-                Some(_) => "Syncing through your git repository",
-                None => "Syncing through a GitHub gist",
+                Some(_) => tr("Syncing through your git repository"),
+                None => tr("Syncing through a GitHub gist"),
             },
             cx,
         );
@@ -198,7 +199,7 @@ impl Shell {
                     s.update_settings(|st| st.sync_remote = Some(url.clone()), cx);
                     s.notify_toast(
                         ToastKind::Positive,
-                        format!("Private repo ready: {url}"),
+                        fill("Private repo ready: {}", &[&url]),
                         cx,
                     );
                 }
@@ -210,7 +211,7 @@ impl Shell {
 
     fn forget_token(&mut self, cx: &mut Context<Self>) {
         match tern_sync::forget_token() {
-            Ok(()) => self.notify_toast(ToastKind::Default, "GitHub token removed", cx),
+            Ok(()) => self.notify_toast(ToastKind::Default, tr("GitHub token removed"), cx),
             Err(e) => self.notify_toast(ToastKind::Critical, e.to_string(), cx),
         }
         self.refresh_token_source(cx);
@@ -249,7 +250,7 @@ impl Shell {
             if !auto {
                 self.notify_toast(
                     ToastKind::Critical,
-                    "Enter the vault passphrase first: it encrypts what goes to GitHub",
+                    tr("Enter the vault passphrase first: it encrypts what goes to GitHub"),
                     cx,
                 );
             }
@@ -312,12 +313,12 @@ impl Shell {
                 }
                 s.auto_sync.seen = None;
                 s.auto_sync.status = Some(match &result {
-                    Ok(Outcome::UpToDate) => "Up to date".into(),
-                    Ok(Outcome::Pushed) => "Uploaded this Mac's changes".into(),
-                    Ok(Outcome::Pulled) => "Downloaded the remote's changes".into(),
-                    Ok(Outcome::Merged) => "Merged this Mac with the remote".into(),
-                    Ok(Outcome::Conflict { .. }) => "Waiting for your choice".into(),
-                    Err(e) => format!("Last sync failed: {e}"),
+                    Ok(Outcome::UpToDate) => tr("Up to date").into(),
+                    Ok(Outcome::Pushed) => tr("Uploaded this Mac's changes").into(),
+                    Ok(Outcome::Pulled) => tr("Downloaded the remote's changes").into(),
+                    Ok(Outcome::Merged) => tr("Merged this Mac with the remote").into(),
+                    Ok(Outcome::Conflict { .. }) => tr("Waiting for your choice").into(),
+                    Err(e) => fill("Last sync failed: {}", &[&e.to_string()]),
                 });
                 match &result {
                     Ok(Outcome::Conflict { .. }) => {
@@ -325,7 +326,7 @@ impl Shell {
                             s.auto_sync.toasted = Some("conflict".into());
                             s.notify_toast(
                                 ToastKind::Critical,
-                                "Sync needs your decision: open Settings, Sync",
+                                tr("Sync needs your decision: open Settings, Sync"),
                                 cx,
                             );
                         }
@@ -335,10 +336,12 @@ impl Shell {
                         s.auto_sync.failed = None;
                         // A quiet background run only speaks when something changed here.
                         let (kind, text) = match outcome {
-                            Outcome::UpToDate => (ToastKind::Default, "Already up to date"),
-                            Outcome::Pushed => (ToastKind::Positive, "Uploaded to the remote"),
-                            Outcome::Pulled => (ToastKind::Positive, "Downloaded from the remote"),
-                            _ => (ToastKind::Positive, "Merged with the remote"),
+                            Outcome::UpToDate => (ToastKind::Default, tr("Already up to date")),
+                            Outcome::Pushed => (ToastKind::Positive, tr("Uploaded to the remote")),
+                            Outcome::Pulled => {
+                                (ToastKind::Positive, tr("Downloaded from the remote"))
+                            }
+                            _ => (ToastKind::Positive, tr("Merged with the remote")),
                         };
                         if !auto || reload {
                             s.notify_toast(kind, text, cx);
@@ -442,7 +445,7 @@ impl Shell {
         }
         if Keeper::len(cx).is_none() {
             // Never prompt for a passphrase from the background.
-            let text = "Automatic sync is waiting for the vault to be unlocked";
+            let text = tr("Automatic sync is waiting for the vault to be unlocked");
             if a.status.as_deref() != Some(text) {
                 a.status = Some(text.into());
                 cx.notify();
@@ -494,20 +497,20 @@ impl Shell {
     pub(super) fn sync_page(&self, cx: &mut Context<Self>) -> gpui::Div {
         let t = self.theme;
         let Some(ui) = &self.sync_ui else {
-            return w::page_column().child(w::page_header(&t, "Sync"));
+            return w::page_column().child(w::page_header(&t, tr("Sync")));
         };
         let account = match ui.token_source {
-            Some(TokenSource::GhCli) => "Using the GitHub CLI's sign-in (gh)",
-            Some(TokenSource::Keychain) => "Token saved in the macOS Keychain",
-            None => "Not connected",
+            Some(TokenSource::GhCli) => tr("Using the GitHub CLI's sign-in (gh)"),
+            Some(TokenSource::Keychain) => tr("Token saved in the macOS Keychain"),
+            None => tr("Not connected"),
         };
         let mut github = w::card(&t).child(w::row(
             &t,
             true,
-            "GitHub",
+            tr("GitHub"),
             Some(account.into()),
             match ui.token_source {
-                Some(TokenSource::Keychain) => w::button(&t, "sync-forget", "Forget token")
+                Some(TokenSource::Keychain) => w::button(&t, "sync-forget", tr("Forget token"))
                     .on_click(cx.listener(|s, _, _, cx| s.forget_token(cx)))
                     .into_any_element(),
                 _ => div().into_any_element(),
@@ -517,15 +520,15 @@ impl Shell {
             github = github.child(w::row(
                 &t,
                 false,
-                "Personal access token",
-                Some("Optional when gh is signed in. Needs only the gist scope.".into()),
+                tr("Personal access token"),
+                Some(tr("Optional when gh is signed in. Needs only the gist scope.").into()),
                 div()
                     .flex()
                     .items_center()
                     .gap(px(6.))
                     .child(field(&ui.token_input, &t))
                     .child(
-                        w::button(&t, "sync-save-token", "Save")
+                        w::button(&t, "sync-save-token", tr("Save"))
                             .on_click(cx.listener(|s, _, _, cx| s.save_token(cx))),
                     ),
             ));
@@ -536,22 +539,26 @@ impl Shell {
             sync = sync.child(w::row(
                 &t,
                 true,
-                "Vault passphrase",
+                tr("Vault passphrase"),
                 Some(if Keeper::exists(cx) {
-                    "Unlocks this Mac's vault for the sync".into()
+                    tr("Unlocks this Mac's vault for the sync").into()
                 } else {
-                    "No vault here yet: GitHub's passphrase, or a new one to start".into()
+                    tr("No vault here yet: GitHub's passphrase, or a new one to start").into()
                 }),
                 field(&ui.pass_input, &t),
             ));
         }
-        let label = if ui.busy { "Syncing…" } else { "Sync now" };
+        let label = if ui.busy {
+            tr("Syncing…")
+        } else {
+            tr("Sync now")
+        };
         sync = sync.child(w::row(
             &t,
             !needs_pass,
-            "Sync now",
+            tr("Sync now"),
             Some(
-                "Connections, settings, shortcuts and the vault, encrypted before they leave"
+                tr("Connections, settings, shortcuts and the vault, encrypted before they leave")
                     .into(),
             ),
             w::button(&t, "sync-now", label).on_click(
@@ -562,7 +569,7 @@ impl Shell {
             .child(w::row(
                 &t,
                 false,
-                "Sync automatically",
+                tr("Sync automatically"),
                 Some(
                     "At launch and 5 seconds after a change to connections, settings, shortcuts \
                      or the vault"
@@ -570,7 +577,7 @@ impl Shell {
                 ),
                 div()
                     .id("toggle-sync-auto")
-                    .switch("Sync automatically", self.settings.sync_auto)
+                    .switch(tr("Sync automatically"), self.settings.sync_auto)
                     .cursor_pointer()
                     .on_click(cx.listener(|s, _, _, cx| {
                         s.update_settings(|st| st.sync_auto = !st.sync_auto, cx);
@@ -578,30 +585,30 @@ impl Shell {
                     .child(w::toggle(&t, self.settings.sync_auto, "sync-auto")),
             ))
             .when_some(self.auto_sync.status.clone(), |c, status| {
-                c.child(w::row(&t, false, "Status", Some(status.into()), div()))
+                c.child(w::row(&t, false, tr("Status"), Some(status.into()), div()))
             });
         if let Some(ask) = &ui.ask {
             if ask.whole {
                 sync = sync.child(w::row(
                     &t,
                     false,
-                    "Resolve",
+                    tr("Resolve"),
                     Some(
-                        "Keep this Mac uploads it over the remote's; Use remote replaces this Mac's"
+                        tr("Keep this Mac uploads it over the remote's; Use remote replaces this Mac's")
                             .into(),
                     ),
                     div()
                         .flex()
                         .gap(px(6.))
                         .child(
-                            w::button(&t, "sync-keep-mac", "Keep this Mac").on_click(
+                            w::button(&t, "sync-keep-mac", tr("Keep this Mac")).on_click(
                                 cx.listener(|s, _, _, cx| {
                                     s.sync_now(Some(Plan::Push), Resolutions::new(), false, cx)
                                 }),
                             ),
                         )
                         .child(
-                            w::button(&t, "sync-use-github", "Use remote").on_click(
+                            w::button(&t, "sync-use-github", tr("Use remote")).on_click(
                                 cx.listener(|s, _, _, cx| {
                                     s.sync_now(Some(Plan::Pull), Resolutions::new(), false, cx)
                                 }),
@@ -618,7 +625,7 @@ impl Shell {
                             &t,
                             false,
                             item_label(name),
-                            Some("Changed on this Mac and on the remote".into()),
+                            Some(tr("Changed on this Mac and on the remote").into()),
                             div()
                                 .flex()
                                 .gap(px(6.))
@@ -626,7 +633,7 @@ impl Shell {
                                     w::button(
                                         &t,
                                         SharedString::from(format!("sync-keep-{name}")),
-                                        format!("Keep this Mac{}", mark(Side::Mac)),
+                                        format!("{}{}", tr("Keep this Mac"), mark(Side::Mac)),
                                     )
                                     .on_click(cx.listener(
                                         move |s, _, _, cx| s.choose(&keep, Side::Mac, cx),
@@ -636,7 +643,7 @@ impl Shell {
                                     w::button(
                                         &t,
                                         SharedString::from(format!("sync-use-{name}")),
-                                        format!("Use remote{}", mark(Side::Remote)),
+                                        format!("{}{}", tr("Use remote"), mark(Side::Remote)),
                                     )
                                     .on_click(cx.listener(
                                         move |s, _, _, cx| s.choose(&take, Side::Remote, cx),
@@ -647,13 +654,13 @@ impl Shell {
             }
         }
         w::page_column()
-            .child(w::page_header(&t, "Sync"))
+            .child(w::page_header(&t, tr("Sync")))
             .child(w::page_subtitle(
                 &t,
                 if self.settings.sync_remote.is_some() {
-                    "Your own private git repository. It stores only encrypted data."
+                    tr("Your own private git repository. It stores only encrypted data.")
                 } else {
-                    "One private gist on your GitHub account. GitHub stores only encrypted data."
+                    tr("One private gist on your GitHub account. GitHub stores only encrypted data.")
                 },
             ))
             .when_some(ui.message.clone(), |el, (ok, text)| {
@@ -667,15 +674,15 @@ impl Shell {
             })
             .child(w::section(
                 &t,
-                "Repository",
+                tr("Repository"),
                 w::card(&t)
                     .child(w::row(
                         &t,
                         true,
-                        "Git remote",
+                        tr("Git remote"),
                         Some(match &self.settings.sync_remote {
-                            Some(_) => "Synced with your own git and its SSH keys".into(),
-                            None => "Empty: a private GitHub gist is used instead".into(),
+                            Some(_) => tr("Synced with your own git and its SSH keys").into(),
+                            None => tr("Empty: a private GitHub gist is used instead").into(),
                         }),
                         div()
                             .flex()
@@ -683,23 +690,23 @@ impl Shell {
                             .gap(px(6.))
                             .child(field(&ui.repo_input, &t))
                             .child(
-                                w::button(&t, "sync-save-repo", "Save")
+                                w::button(&t, "sync-save-repo", tr("Save"))
                                     .on_click(cx.listener(|s, _, _, cx| s.save_repo(cx))),
                             ),
                     ))
                     .child(w::row(
                         &t,
                         false,
-                        "Create a private repo on GitHub",
-                        Some("Runs gh repo create tern-sync --private".into()),
-                        w::button(&t, "sync-create-repo", "Create")
+                        tr("Create a private repo on GitHub"),
+                        Some(tr("Runs gh repo create tern-sync --private").into()),
+                        w::button(&t, "sync-create-repo", tr("Create"))
                             .on_click(cx.listener(|s, _, _, cx| s.create_repo(cx))),
                     )),
             ))
             .when(self.settings.sync_remote.is_none(), |el| {
-                el.child(w::section(&t, "Account", github))
+                el.child(w::section(&t, tr("Account"), github))
             })
-            .child(w::section(&t, "Sync", sync))
+            .child(w::section(&t, tr("Sync"), sync))
     }
 }
 

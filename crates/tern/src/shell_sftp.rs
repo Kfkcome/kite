@@ -14,6 +14,7 @@ use gpui::{AppContext, Context, Entity, FocusHandle, Focusable, Window, actions}
 use tern_ssh::{Progress, Sftp, SftpEntry, SftpError};
 
 use super::{Shell, Toast, ToastKind};
+use crate::i18n::{fill, tr};
 use crate::session::Session;
 use crate::sftp_paths;
 use crate::text_input::{InputColors, TextInput};
@@ -284,10 +285,18 @@ impl Shell {
             return;
         };
         let Some(dir) = std::env::home_dir().map(|h| h.join("Downloads")) else {
-            return self.notify_toast(ToastKind::Critical, "No Downloads folder to save into.", cx);
+            return self.notify_toast(
+                ToastKind::Critical,
+                tr("No Downloads folder to save into."),
+                cx,
+            );
         };
         if let Err(e) = std::fs::create_dir_all(&dir) {
-            return self.notify_toast(ToastKind::Critical, format!("{}: {e}", dir.display()), cx);
+            return self.notify_toast(
+                ToastKind::Critical,
+                fill("{}: {}", &[&dir.display().to_string(), &e.to_string()]),
+                cx,
+            );
         }
         panel.busy = true;
         let dest = sftp_paths::free_name(&dir, &entry.name, |p| p.exists());

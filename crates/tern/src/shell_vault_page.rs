@@ -10,6 +10,7 @@ use tern_vault::Key;
 
 use super::vault_ui::describe_entry;
 use super::{Shell, ToastKind};
+use crate::i18n::{fill, tr};
 use crate::icons::{self, icon};
 use crate::keeper::{self, Keeper};
 use crate::settings_widgets as w;
@@ -21,32 +22,33 @@ impl Shell {
     pub(super) fn vault_page(&self, cx: &mut Context<Self>) -> gpui::Div {
         let t = self.theme;
         let Some(ui) = &self.vault_ui else {
-            return w::page_column().child(w::page_header(&t, "Vault"));
+            return w::page_column().child(w::page_header(&t, tr("Vault")));
         };
         let entries = Keeper::keys(cx);
         let exists = Keeper::exists(cx);
         let (status, detail): (&str, String) = match &entries {
-            Some(list) => (
-                "Unlocked",
-                format!(
-                    "{} saved secret{}",
-                    list.len(),
-                    if list.len() == 1 { "" } else { "s" }
-                ),
-            ),
+            Some(list) => {
+                let n = list.len().to_string();
+                let detail = if list.len() == 1 {
+                    fill("{} saved secret", &[&n])
+                } else {
+                    fill("{} saved secrets", &[&n])
+                };
+                (tr("Unlocked"), detail)
+            }
             None if exists => (
-                "Locked",
-                "Unlocks the first time a saved login is needed, or here".into(),
+                tr("Locked"),
+                tr("Unlocks the first time a saved login is needed, or here").into(),
             ),
             None => (
-                "No vault yet",
-                "Created the first time you save a password, or here".into(),
+                tr("No vault yet"),
+                tr("Created the first time you save a password, or here").into(),
             ),
         };
         // Only an open vault can be locked; a dimmed button that does nothing is noise.
         let lock = div().when(entries.is_some(), |el| {
             el.child(
-                w::button(&t, "vault-lock", "Lock now")
+                w::button(&t, "vault-lock", tr("Lock now"))
                     .on_click(cx.listener(|s, _, _, cx| s.lock_vault(cx))),
             )
         });
@@ -60,9 +62,9 @@ impl Shell {
                     &t,
                     "vault-unlock-switch",
                     if by_pin {
-                        "Use passphrase instead"
+                        tr("Use passphrase instead")
                     } else {
-                        "Use PIN instead"
+                        tr("Use PIN instead")
                     },
                 )
                 .on_click(cx.listener(|s, _, _, cx| s.toggle_use_passphrase(cx)))
@@ -70,11 +72,11 @@ impl Shell {
             status_card = status_card.child(w::row(
                 &t,
                 false,
-                "Unlock",
+                tr("Unlock"),
                 Some(if by_pin {
-                    "Enter the vault PIN".into()
+                    tr("Enter the vault PIN").into()
                 } else {
-                    "Enter the vault passphrase".into()
+                    tr("Enter the vault passphrase").into()
                 }),
                 div()
                     .flex()
@@ -90,7 +92,11 @@ impl Shell {
                         w::button(
                             &t,
                             "vault-unlock",
-                            if ui.busy { "Unlocking…" } else { "Unlock" },
+                            if ui.busy {
+                                tr("Unlocking…")
+                            } else {
+                                tr("Unlock")
+                            },
                         )
                         .on_click(cx.listener(|s, _, _, cx| s.unlock_vault(cx))),
                     ),
@@ -100,8 +106,8 @@ impl Shell {
             status_card = status_card.child(w::row(
                 &t,
                 false,
-                "Create the vault",
-                Some("Choose a passphrase. It cannot be recovered if you forget it.".into()),
+                tr("Create the vault"),
+                Some(tr("Choose a passphrase. It cannot be recovered if you forget it.").into()),
                 // Stacked: side by side, two fields and a button squeezed the title to one
                 // letter per line at the 900 px minimum window.
                 div()
@@ -116,17 +122,21 @@ impl Shell {
                         w::button(
                             &t,
                             "vault-create",
-                            if ui.busy { "Creating…" } else { "Create" },
+                            if ui.busy {
+                                tr("Creating…")
+                            } else {
+                                tr("Create")
+                            },
                         )
                         .on_click(cx.listener(|s, _, _, cx| s.create_vault(cx))),
                     ),
             ));
         }
         let mut page = w::page_column()
-            .child(w::page_header(&t, "Vault"))
+            .child(w::page_header(&t, tr("Vault")))
             .child(w::page_subtitle(
                 &t,
-                "Passwords, key passphrases and SSH keys, encrypted with your vault passphrase (age, scrypt)",
+                tr("Passwords, key passphrases and SSH keys, encrypted with your vault passphrase (age, scrypt)"),
             ))
             .when_some(ui.message.clone(), |el, (ok, text)| {
                 el.child(
@@ -137,24 +147,24 @@ impl Shell {
                     }),
                 )
             })
-            .child(w::section(&t, "Status", status_card));
+            .child(w::section(&t, tr("Status"), status_card));
         if let Some(list) = entries {
             page = page
                 .child(w::section(
                     &t,
-                    "Saved secrets",
+                    tr("Saved secrets"),
                     self.entries_card(&list, cx),
                 ))
-                .child(w::section(&t, "SSH keys", self.keys_card(cx)));
+                .child(w::section(&t, tr("SSH keys"), self.keys_card(cx)));
         }
         if exists {
             page = page.child(w::section(
                 &t,
-                "Change passphrase",
+                tr("Change passphrase"),
                 self.passphrase_card(cx),
             ));
         }
-        page.child(w::section(&t, "Security", self.security_card(cx)))
+        page.child(w::section(&t, tr("Security"), self.security_card(cx)))
     }
 
     fn entries_card(&self, list: &[Key], cx: &mut Context<Self>) -> gpui::Div {
@@ -164,8 +174,8 @@ impl Shell {
             return card.child(w::row(
                 &t,
                 true,
-                "Nothing saved yet",
-                Some("Saved passwords and keys appear here".into()),
+                tr("Nothing saved yet"),
+                Some(tr("Saved passwords and keys appear here").into()),
                 div(),
             ));
         }
@@ -180,7 +190,7 @@ impl Shell {
                 .gap(px(6.))
                 .when(is_key, |el| {
                     el.child(
-                        w::button(&t, ("vault-copy", ix), "Copy public key").on_click(
+                        w::button(&t, ("vault-copy", ix), tr("Copy public key")).on_click(
                             cx.listener(move |s, _, _, cx| s.copy_public_key(&copy_key, cx)),
                         ),
                     )
@@ -228,30 +238,30 @@ impl Shell {
             .child(w::row(
                 &t,
                 true,
-                "Key name",
-                Some("How the key is listed, and how a connection picks it".into()),
+                tr("Key name"),
+                Some(tr("How the key is listed, and how a connection picks it").into()),
                 field(&ui.key_name, &t),
             ))
             .child(w::row(
                 &t,
                 false,
-                "Generate",
-                Some("A new ed25519 key, stored only in the vault".into()),
-                w::button(&t, "vault-generate", "Generate")
+                tr("Generate"),
+                Some(tr("A new ed25519 key, stored only in the vault").into()),
+                w::button(&t, "vault-generate", tr("Generate"))
                     .on_click(cx.listener(|s, _, _, cx| s.generate_key(cx))),
             ))
             .child(w::row(
                 &t,
                 false,
-                "Import a key file",
-                Some("An OpenSSH private key without its own passphrase".into()),
+                tr("Import a key file"),
+                Some(tr("An OpenSSH private key without its own passphrase").into()),
                 div()
                     .flex()
                     .items_center()
                     .gap(px(6.))
                     .child(field(&ui.key_path, &t))
                     .child(
-                        w::button(&t, "vault-import", "Import")
+                        w::button(&t, "vault-import", tr("Import"))
                             .on_click(cx.listener(|s, _, _, cx| s.import_key(cx))),
                     ),
             ));
@@ -260,12 +270,12 @@ impl Shell {
             card = card.child(w::row(
                 &t,
                 false,
-                format!("Public key of {name}"),
+                fill("Public key of {}", &[name.as_str()]),
                 Some(format!("{} · {}\n{}", info.algorithm, info.fingerprint, info.public).into()),
-                w::button(&t, "vault-copy-new", "Copy").on_click(cx.listener(
+                w::button(&t, "vault-copy-new", tr("Copy")).on_click(cx.listener(
                     move |s, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(line.clone()));
-                        s.notify_toast(ToastKind::Positive, "Public key copied", cx);
+                        s.notify_toast(ToastKind::Positive, tr("Public key copied"), cx);
                     },
                 )),
             ));
@@ -282,22 +292,22 @@ impl Shell {
             .child(w::row(
                 &t,
                 true,
-                "Current passphrase",
+                tr("Current passphrase"),
                 None,
                 field(&ui.current, &t),
             ))
             .child(w::row(
                 &t,
                 false,
-                "New passphrase",
+                tr("New passphrase"),
                 None,
                 field(&ui.new, &t),
             ))
             .child(w::row(
                 &t,
                 false,
-                "Repeat new passphrase",
-                Some("The vault is re-encrypted; the old passphrase stops working".into()),
+                tr("Repeat new passphrase"),
+                Some(tr("The vault is re-encrypted; the old passphrase stops working").into()),
                 div()
                     .flex()
                     .items_center()
@@ -307,7 +317,11 @@ impl Shell {
                         w::button(
                             &t,
                             "vault-change",
-                            if ui.busy { "Working…" } else { "Change" },
+                            if ui.busy {
+                                tr("Working…")
+                            } else {
+                                tr("Change")
+                            },
                         )
                         .on_click(cx.listener(|s, _, _, cx| s.change_passphrase(cx))),
                     ),
@@ -318,9 +332,9 @@ impl Shell {
         let t = self.theme;
         let minutes = self.settings.vault_lock_minutes;
         let label = if minutes == 0 {
-            "Off".to_owned()
+            tr("Off").to_owned()
         } else {
-            format!("{minutes} min")
+            format!("{minutes} {}", tr("min"))
         };
         let (minus, value, plus) = w::stepper(&t, "vault-lock-after", label);
         let keychain = self.settings.vault_keychain;
@@ -328,8 +342,8 @@ impl Shell {
             .child(w::row(
                 &t,
                 true,
-                "Lock vault after idle",
-                Some("No key or mouse input to the window. Open sessions keep running.".into()),
+                tr("Lock vault after idle"),
+                Some(tr("No key or mouse input to the window. Open sessions keep running.").into()),
                 div()
                     .flex()
                     .items_center()
@@ -347,9 +361,12 @@ impl Shell {
             .child(w::row(
                 &t,
                 false,
-                format!("Unlock with the {}", crate::keeper::keychain::STORE_NAME),
+                fill(
+                    "Unlock with the {}",
+                    &[tr(crate::keeper::keychain::STORE_NAME)],
+                ),
                 Some(
-                    "Stores the vault passphrase in your login Keychain and opens the vault the first time tern needs it"
+                    tr("Stores the vault passphrase in your login Keychain and opens the vault the first time tern needs it")
                         .into(),
                 ),
                 div()
@@ -372,12 +389,12 @@ impl Shell {
             return div().child(w::row(
                 &t,
                 false,
-                "Unlock with a PIN",
+                tr("Unlock with a PIN"),
                 Some(
-                    "On. Opens the vault after an idle lock; 5 wrong PINs turn it off. Changing the passphrase removes it."
+                    tr("On. Opens the vault after an idle lock; 5 wrong PINs turn it off. Changing the passphrase removes it.")
                         .into(),
                 ),
-                w::button(&t, "vault-pin-off", "Turn off")
+                w::button(&t, "vault-pin-off", tr("Turn off"))
                     .on_click(cx.listener(|s, _, _, cx| s.clear_vault_pin(cx))),
             ));
         }
@@ -387,9 +404,9 @@ impl Shell {
             .child(w::row(
                 &t,
                 false,
-                "Unlock with a PIN",
+                tr("Unlock with a PIN"),
                 Some(
-                    "4 to 8 digits, kept in the Keychain on this Mac. The vault must be unlocked to set it."
+                    tr("4 to 8 digits, kept in the Keychain on this Mac. The vault must be unlocked to set it.")
                         .into(),
                 ),
                 field(&ui.pin_new, &t),
@@ -397,7 +414,7 @@ impl Shell {
             .child(w::row(
                 &t,
                 false,
-                "Repeat PIN",
+                tr("Repeat PIN"),
                 None,
                 div()
                     .flex()
@@ -405,7 +422,7 @@ impl Shell {
                     .gap(px(6.))
                     .child(field(&ui.pin_repeat, &t))
                     .child(
-                        w::button(&t, "vault-pin-set", if ui.busy { "Working…" } else { "Set PIN" })
+                        w::button(&t, "vault-pin-set", if ui.busy { tr("Working…") } else { tr("Set PIN") })
                             .on_click(cx.listener(|s, _, _, cx| s.set_vault_pin(cx))),
                     ),
             ))

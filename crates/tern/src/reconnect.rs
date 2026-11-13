@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use crate::i18n::{fill, tr};
 use tern_ssh::Disconnect;
 
 /// Waits between tries; the last one repeats until the user stops it.
@@ -60,18 +61,20 @@ pub fn key(input: &[u8]) -> Key {
 /// A short cause for the notice line.
 pub fn label(reason: &Disconnect) -> &'static str {
     match reason {
-        Disconnect::Timeout => "timeout",
-        Disconnect::Reset => "connection reset",
-        Disconnect::ServerClosed => "closed by server",
-        Disconnect::Unreachable => "unreachable",
-        _ => "closed",
+        Disconnect::Timeout => tr("timeout"),
+        Disconnect::Reset => tr("connection reset"),
+        Disconnect::ServerClosed => tr("closed by server"),
+        Disconnect::Unreachable => tr("unreachable"),
+        _ => tr("closed"),
     }
 }
 
 /// The countdown line, redrawn in place every second.
 pub fn notice(label: &str, secs: u64) -> String {
-    format!(
-        "Connection lost ({label}). Reconnecting in {secs}s\u{2026} (Enter to retry now, Esc to stop)"
+    let secs = secs.to_string();
+    fill(
+        "Connection lost ({}). Reconnecting in {}s\u{2026} (Enter to retry now, Esc to stop)",
+        &[label, &secs],
     )
 }
 
@@ -134,9 +137,9 @@ mod tests {
         assert_eq!(label(&Disconnect::Timeout), "timeout");
         assert_eq!(label(&Disconnect::Reset), "connection reset");
         assert_eq!(label(&Disconnect::ServerClosed), "closed by server");
-        assert_eq!(label(&Disconnect::Unreachable), "unreachable");
-        assert_eq!(label(&Disconnect::Exited(0)), "closed");
-        assert_eq!(label(&Disconnect::Local), "closed");
-        assert_eq!(label(&Disconnect::Failed), "closed");
+        assert_eq!(label(&Disconnect::Unreachable), tr("unreachable"));
+        assert_eq!(label(&Disconnect::Exited(0)), tr("closed"));
+        assert_eq!(label(&Disconnect::Local), tr("closed"));
+        assert_eq!(label(&Disconnect::Failed), tr("closed"));
     }
 }

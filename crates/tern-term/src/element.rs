@@ -374,7 +374,7 @@ fn spans(row: &[CellSnapshot], pred: impl Fn(&CellSnapshot) -> bool) -> Vec<(usi
     out
 }
 
-fn mono_font(theme: &TerminalTheme) -> gpui::Font {
+pub(crate) fn mono_font(theme: &TerminalTheme) -> gpui::Font {
     // Ligatures OFF: a terminal is a fixed grid, and a contextual substitution
     // collapses several cells into fewer glyphs so the row renders short while
     // the cursor stays on the true column.
@@ -384,7 +384,24 @@ fn mono_font(theme: &TerminalTheme) -> gpui::Font {
         ("calt".into(), 0),
         ("dlig".into(), 0),
     ]));
+    // Geist Mono has no CJK. A fallback has to be listed or macOS never cascades.
+    mono.fallbacks = Some(cjk_fallbacks());
     mono
+}
+
+fn cjk_fallbacks() -> gpui::FontFallbacks {
+    use std::sync::OnceLock;
+    static CJK: OnceLock<gpui::FontFallbacks> = OnceLock::new();
+    CJK.get_or_init(|| {
+        gpui::FontFallbacks::from_fonts(vec![
+            "PingFang SC".into(),
+            "Hiragino Sans GB".into(),
+            "Heiti SC".into(),
+            "PingFang TC".into(),
+            "Noto Sans CJK SC".into(),
+        ])
+    })
+    .clone()
 }
 
 /// The cursor quad, split by z-order: a focused block goes under the glyph

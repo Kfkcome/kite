@@ -28,31 +28,37 @@ pub fn init_menus(cx: &mut App) {
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(|_: &Minimize, cx| with_active_window(cx, |w| w.minimize_window()));
     cx.on_action(|_: &Zoom, cx| with_active_window(cx, |w| w.zoom_window()));
-    // Only macOS has an application menu bar; elsewhere the chords below are all there is.
+    install_menus(cx);
+}
+
+/// The macOS menu bar. Called again when the language changes; elsewhere there is no bar.
+pub fn install_menus(cx: &mut App) {
     #[cfg(target_os = "macos")]
     cx.set_menus([
         Menu {
             name: "tern".into(),
             items: vec![
-                MenuItem::action("Settings…", crate::shell::OpenSettings),
+                MenuItem::action(crate::i18n::tr("Settings…"), crate::shell::OpenSettings),
                 MenuItem::separator(),
-                MenuItem::action("Hide tern", Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action(crate::i18n::tr("Hide tern"), Hide),
+                MenuItem::action(crate::i18n::tr("Hide Others"), HideOthers),
+                MenuItem::action(crate::i18n::tr("Show All"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit tern", Quit),
+                MenuItem::action(crate::i18n::tr("Quit tern"), Quit),
             ],
             disabled: false,
         },
         Menu {
-            name: "Window".into(),
+            name: crate::i18n::tr("Window").into(),
             items: vec![
-                MenuItem::action("Minimize", Minimize),
-                MenuItem::action("Zoom", Zoom),
+                MenuItem::action(crate::i18n::tr("Minimize"), Minimize),
+                MenuItem::action(crate::i18n::tr("Zoom"), Zoom),
             ],
             disabled: false,
         },
     ]);
+    #[cfg(not(target_os = "macos"))]
+    let _ = cx;
 }
 
 /// The menu's own chords; not rebindable, as in every macOS app. Windows and Linux have only
@@ -111,13 +117,13 @@ pub fn render_titlebar(
                 .gap(px(2.))
                 .child(
                     control("toggle-sidebar", t)
-                        .icon_button("Toggle sidebar", t)
+                        .icon_button(crate::i18n::tr("Toggle sidebar"), t)
                         .on_click(cx.listener(|s, _, _, cx| s.toggle_sidebar(cx)))
                         .child(crate::icons::sidebar_glyph(sidebar_open, 16., t.muted)),
                 )
                 .child(
                     control("find-host", t)
-                        .icon_button("New tab: find a host", t)
+                        .icon_button(crate::i18n::tr("New tab: find a host"), t)
                         .on_click(cx.listener(|s, _, w, cx| s.toggle_picker(w, cx)))
                         .child(
                             crate::icons::icon(crate::icons::PLUS)
