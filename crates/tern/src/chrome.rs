@@ -109,7 +109,15 @@ pub fn render_titlebar(
         // buttons stop the mouse-down, so those stay clicks. The empty tail
         // after the pills is inside the tab strip, which shares the row with
         // the drag strip, and AppKit will not move this window unless asked.
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+        // A double-click is the system titlebar action (zoom, fill, or minimize),
+        // not the start of a drag.
+        .on_mouse_down(MouseButton::Left, |event, window, _| {
+            if event.click_count >= 2 {
+                window.titlebar_double_click();
+            } else {
+                window.start_window_move();
+            }
+        })
         .child(
             div()
                 .flex()

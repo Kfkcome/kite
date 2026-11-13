@@ -49,8 +49,11 @@ missing_errors_doc = "warn"
 disallowed_methods = "deny"
 
 # Scrollback rows keep only the cells they use. See vendor/alacritty_terminal/TERN-PATCH.md.
+# macOS 27 moves the window from mouseDragged: instead of performWindowDragWithEvent:.
+# See vendor/gpui-pre-macos/TERN-PATCH.md.
 [patch.crates-io]
 alacritty_terminal = { path = "vendor/alacritty_terminal" }
+gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 
 # Small, fast release binary. Measured, not assumed: see docs/perf.md.
 [profile.release]
