@@ -263,11 +263,7 @@ pub fn keystroke_bytes(
 /// macOS Pinyin is an ASCII-capable input mode, so the platform delivers the
 /// key to the view before the input method. Swallowing it means composition
 /// never starts.
-pub fn ime_character(
-    keystroke: &Keystroke,
-    mode: Modes,
-    option_as_meta: bool,
-) -> Option<&str> {
+pub fn ime_character(keystroke: &Keystroke, mode: Modes, option_as_meta: bool) -> Option<&str> {
     if to_esc_str(keystroke, mode, option_as_meta).is_some() {
         return None;
     }

@@ -105,12 +105,16 @@ impl gpui::Element for TerminalElement {
             .text_system()
             .em_advance(font_id, font_size)
             .unwrap_or(px(theme.font_size * 0.6));
-        let line_h = px((theme.font_size * theme.line_height_ratio).round());
+        let nominal = (theme.font_size * theme.line_height_ratio).round().max(1.0);
 
         let inner_w = f32::from(bounds.size.width) - 2.0 * TERM_PADDING;
-        let inner_h = f32::from(bounds.size.height) - 2.0 * TERM_PADDING;
+        // Top inset only. The line box then grows so the rows reach the bottom
+        // edge. A reserved bottom inset is not a cell, and with a translucent
+        // terminal the wallpaper shows through it as a blank band.
+        let avail_h = f32::from(bounds.size.height) - TERM_PADDING;
         let cols = ((inner_w / f32::from(cell_w)).floor() as i64).clamp(2, 1000) as u16;
-        let rows = ((inner_h / f32::from(line_h)).floor() as i64).clamp(1, 1000) as u16;
+        let (rows, filled_h) = filled_rows(avail_h, nominal);
+        let line_h = px(filled_h);
         let origin = point(
             bounds.left() + px(TERM_PADDING),
             bounds.top() + px(TERM_PADDING),
@@ -332,6 +336,25 @@ fn paint_ime_preedit(
         bg,
     ));
     let _ = line.paint(top_left, line_h, gpui::TextAlign::Left, None, window, cx);
+}
+
+/// Rows that fit in `avail`, and the line height that makes them reach it.
+///
+/// The line box grows instead of leaving a short strip under the last row.
+/// Below one nominal line the box stays nominal and the pane clips it.
+fn filled_rows(avail: f32, nominal: f32) -> (u16, f32) {
+    let nominal = if nominal.is_finite() && nominal >= 1.0 {
+        nominal
+    } else {
+        1.0
+    };
+    let avail = if avail.is_finite() && avail >= nominal {
+        avail
+    } else {
+        nominal
+    };
+    let rows = ((avail / nominal).floor() as i64).clamp(1, 1000) as u16;
+    (rows, avail / f32::from(rows))
 }
 
 /// Contiguous `[start, end)` column runs of cells satisfying `pred`.
@@ -615,4 +638,31 @@ fn shape_row(
         window,
     );
     (segments, boxes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filled_rows;
+
+    #[test]
+    fn rows_reach_the_bottom_of_the_pane() {
+        let (rows, line_h) = filled_rows(400.0, 18.0);
+        assert_eq!(rows, 22);
+        assert!((f32::from(rows) * line_h - 400.0).abs() < 1e-3);
+        assert!(line_h >= 18.0);
+    }
+
+    #[test]
+    fn an_exact_multiple_keeps_the_nominal_line() {
+        let (rows, line_h) = filled_rows(360.0, 18.0);
+        assert_eq!(rows, 20);
+        assert!((line_h - 18.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_short_pane_does_not_squash_the_line() {
+        let (rows, line_h) = filled_rows(10.0, 18.0);
+        assert_eq!(rows, 1);
+        assert!((line_h - 18.0).abs() < 1e-3);
+    }
 }
