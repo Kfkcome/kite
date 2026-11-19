@@ -88,6 +88,7 @@ const ZH: &[(&str, &str)] = &[
     ),
     ("About", "关于"),
     ("Account", "账户"),
+    ("Add", "添加"),
     ("Add in Settings", "在设置里添加"),
     ("Advanced", "高级"),
     ("Already in tern", "已在 tern 中"),
@@ -721,6 +722,13 @@ const ZH: &[(&str, &str)] = &[
         "This is an encrypted Netcatty backup. In Netcatty, use Settings → Data → Export Vault → Sanitized Export (JSON).",
         "这是加密的 Netcatty 备份文件。请在 Netcatty 中使用「设置 → 数据 → 导出保险箱 → 脱敏导出 (JSON)」。",
     ),
+    ("Local Terminal", "本地终端"),
+    ("Open a local shell", "打开本地终端"),
+    ("None running", "当前无运行中的转发"),
+    ("Not connected.", "未连接。"),
+    ("Not connected: no files to browse.", "未连接：无法浏览文件。"),
+    ("Port forwards on {}", "{} 的端口转发"),
+    ("Stop", "停止"),
 ];
 
 #[cfg(test)]

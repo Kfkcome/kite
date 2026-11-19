@@ -6,6 +6,7 @@ mod box_drawing;
 mod config;
 mod element;
 mod links;
+mod local_pty;
 mod mappings;
 mod search;
 mod terminal;
@@ -14,6 +15,7 @@ mod view;
 pub use config::TerminalTheme;
 pub use config::{CursorStyleSetting, TerminalOptions};
 pub use links::Link;
+pub use local_pty::LocalPty;
 pub use search::SearchMark;
 pub use terminal::{
     CellColor, CellSnapshot, CursorSnapshot, SCROLLBACK_LINES, Terminal, TerminalEvent,

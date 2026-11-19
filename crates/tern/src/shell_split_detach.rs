@@ -62,6 +62,28 @@ impl Shell {
             background: t.popup,
             color: t.text,
         };
+        let pane_btn = |id_name: &'static str, tip: &'static str, glyph: &'static str| {
+            div()
+                .id((id_name, pane))
+                .size(px(18.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .cursor_pointer()
+                .icon_button(crate::i18n::tr(tip), &t)
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(crate::icons::icon(glyph).size(px(12.)).text_color(t.muted))
+        };
+        let pane_session = move |shell: &Shell| -> Option<gpui::Entity<crate::session::Session>> {
+            shell
+                .tabs
+                .iter()
+                .find(|t| t.id == tab)
+                .and_then(|t| t.panes.iter().find(|p| p.id == pane))
+                .map(|p| p.session.clone())
+        };
         div()
             .id(("pane-title", pane))
             .h(px(22.))
@@ -83,36 +105,34 @@ impl Shell {
                     .truncate()
                     .child(SharedString::from(label.to_owned())),
             )
+            .child(pane_btn("pane-sftp", "Browse files", crate::icons::FOLDER).on_click(
+                cx.listener(move |shell, _, window, cx| {
+                    if let Some(session) = pane_session(shell) {
+                        shell.open_sftp_for_session(session, window, cx);
+                    }
+                }),
+            ))
             .child(
-                div()
-                    .id(("pane-reconnect", pane))
-                    .size(px(18.))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.))
-                    .cursor_pointer()
-                    .icon_button(crate::i18n::tr("Reconnect current session"), &t)
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |shell, _, window, cx| {
-                        let Some(session) = shell
-                            .tabs
-                            .iter()
-                            .find(|t| t.id == tab)
-                            .and_then(|t| t.panes.iter().find(|p| p.id == pane))
-                            .map(|p| p.session.clone())
-                        else {
-                            return;
-                        };
+                pane_btn("pane-forwards", "Port forwards", crate::icons::GLOBE).on_click(
+                    cx.listener(move |shell, e: &gpui::ClickEvent, window, cx| {
+                        if let Some(session) = pane_session(shell) {
+                            shell.open_forwards_for_session(session, e.position(), window, cx);
+                        }
+                    }),
+                ),
+            )
+            .child(
+                pane_btn(
+                    "pane-reconnect",
+                    "Reconnect current session",
+                    crate::icons::RESTART,
+                )
+                .on_click(cx.listener(move |shell, _, window, cx| {
+                    if let Some(session) = pane_session(shell) {
                         session.update(cx, |s, cx| s.reconnect(cx));
                         shell.focus_pane(pane, window, cx);
-                    }))
-                    .child(
-                        crate::icons::icon(crate::icons::RESTART)
-                            .size(px(12.))
-                            .text_color(t.muted),
-                    ),
+                    }
+                })),
             )
             .into_any_element()
     }

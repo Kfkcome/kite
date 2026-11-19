@@ -12,7 +12,7 @@ use tern_ssh::Forward;
 
 use super::{Shell, ToastKind};
 use crate::forward_spec;
-use crate::i18n::fill;
+use crate::i18n::{fill, tr};
 use crate::keymap::{self, Keymap, ShortcutId};
 use crate::session::Status;
 use crate::session::{Session, SessionNote};
@@ -62,6 +62,16 @@ impl Shell {
         let Some(session) = self.tabs.get(ix).map(|t| t.session().clone()) else {
             return;
         };
+        self.open_forwards_for_session(session, position, window, cx);
+    }
+
+    pub(crate) fn open_forwards_for_session(
+        &mut self,
+        session: Entity<Session>,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let t = self.theme;
         let colors = InputColors {
             text: t.text,
@@ -119,7 +129,7 @@ impl Shell {
             return;
         }
         if session.read(cx).status != Status::Connected {
-            panel.error = Some("Not connected.".into());
+            panel.error = Some(tr("Not connected.").into());
             return cx.notify();
         }
         panel.error = None;
@@ -181,7 +191,7 @@ impl Shell {
                     .py(px(4.))
                     .text_size(px(11.))
                     .text_color(t.muted)
-                    .child(SharedString::from(format!("Port forwards on {label}"))),
+                    .child(SharedString::from(fill("Port forwards on {}", &[&label]))),
             );
         if running.is_empty() {
             card = card.child(
@@ -189,7 +199,7 @@ impl Shell {
                     .px(px(8.))
                     .py(px(6.))
                     .text_color(t.muted)
-                    .child("None running"),
+                    .child(tr("None running")),
             );
         }
         for (ix, info) in running.iter().enumerate() {
@@ -224,7 +234,7 @@ impl Shell {
                             .on_click(move |_, _, cx| {
                                 session.update(cx, |s, cx| s.stop_forward(id, cx))
                             })
-                            .child("Stop"),
+                            .child(tr("Stop")),
                     ),
             );
         }
@@ -250,7 +260,7 @@ impl Shell {
                         .child(panel.input.clone()),
                 )
                 .child(
-                    super::connections_ui::button("forward-add", "Add", true, &t)
+                    super::connections_ui::button("forward-add", tr("Add"), true, &t)
                         .on_click(cx.listener(|s, _, _, cx| s.add_panel_forward(cx))),
                 ),
         );

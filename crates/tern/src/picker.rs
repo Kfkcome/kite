@@ -125,6 +125,12 @@ pub fn rank_named<N: AsRef<str>, L: AsRef<str>>(
     out
 }
 
+/// Whether the pinned "Local Terminal" row matches the current picker query.
+fn includes_local(query: &str) -> bool {
+    let q = query.trim();
+    q.is_empty() || !rank_labels(q, &["local terminal 本地终端 zsh bash shell"]).is_empty()
+}
+
 /// Fuzzy-ranks any labels: indices of the matches, best first, input order on an empty
 /// query or a tie.
 pub fn rank_labels<S: AsRef<str>>(query: &str, labels: &[S]) -> Vec<usize> {
@@ -161,13 +167,16 @@ impl Shell {
         cx.stop_propagation();
         let matches = self.picker_matches();
         let query = self.picker_query();
+        let show_local = includes_local(&query);
+        let local_offset = usize::from(show_local);
+        let total = local_offset + matches.len();
         let Some(picker) = self.picker_mut() else {
             return;
         };
         match key {
             Key::Move(delta) => {
-                if !matches.is_empty() {
-                    picker.active = crate::tabs::step(picker.active, matches.len(), delta);
+                if total > 0 {
+                    picker.active = crate::tabs::step(picker.active, total, delta);
                     picker.scroll.scroll_to_item(picker.active);
                 }
             }
@@ -180,8 +189,13 @@ impl Shell {
                 picker.active = 0;
             }
             Key::Pick => {
+                if show_local && picker.active == 0 {
+                    self.close_picker(window, cx);
+                    self.open_local_terminal(window, cx);
+                    return;
+                }
                 let chosen = matches
-                    .get(picker.active)
+                    .get(picker.active.saturating_sub(local_offset))
                     .map(|&ix| self.hosts()[ix].clone());
                 self.close_picker(window, cx);
                 match chosen {
@@ -216,8 +230,51 @@ pub fn render(
     t: &Theme,
     cx: &mut Context<Shell>,
 ) -> AnyElement {
-    let active = picker.active.min(matches.len().saturating_sub(1));
-    let rows = matches.iter().enumerate().map(|(row, &ix)| {
+    let show_local = includes_local(&picker.query);
+    let local_offset = usize::from(show_local);
+    let total = local_offset + matches.len();
+    let active = picker.active.min(total.saturating_sub(1));
+    let local_row = show_local.then(|| {
+        div()
+            .id("pick-local-terminal")
+            .mx(px(4.))
+            .px(px(12.))
+            .py(px(4.))
+            .min_h(px(30.))
+            .rounded(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .cursor_pointer()
+            .hover_fade("pick-local", gpui::transparent_black(), t.row_active)
+            .when(active == 0, |el| el.bg(t.row_active))
+            .on_click(cx.listener(|shell, _, window, cx| {
+                shell.close_picker(window, cx);
+                shell.open_local_terminal(window, cx);
+            }))
+            .child(
+                crate::icons::icon(crate::icons::TERMINAL)
+                    .size(px(14.))
+                    .text_color(t.accent),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(tr("Local Terminal")),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(t.muted)
+                    .child(tr("Open a local shell")),
+            )
+    });
+    let rows = matches.iter().enumerate().map(|(i, &ix)| {
+        let row = i + local_offset;
         let host = &hosts[ix];
         let target = host.clone();
         div()
@@ -316,8 +373,9 @@ pub fn render(
                 .flex()
                 .flex_col()
                 .gap(px(2.))
+                .children(local_row)
                 .children(rows)
-                .when(matches.is_empty(), |el| {
+                .when(matches.is_empty() && !show_local, |el| {
                     if empty_state::picker_is_empty(&picker.query, hosts.len(), matches.len()) {
                         return el.child(
                             div().py(px(24.)).child(

@@ -22,6 +22,7 @@ mod picker;
 mod platform;
 mod reconnect;
 mod session;
+mod session_local;
 mod session_log;
 mod settings;
 mod settings_widgets;

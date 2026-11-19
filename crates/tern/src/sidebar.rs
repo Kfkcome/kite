@@ -179,6 +179,25 @@ pub fn render(
         .flex_col()
         .child(header(t, cx))
         .child(search_field(s.search, t, cx))
+        .child(
+            div().px(px(8.)).pb(px(4.)).child(
+                div()
+                    .id("sidebar-local-terminal")
+                    .h(px(28.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded(px(8.))
+                    .cursor_pointer()
+                    .text_size(px(13.))
+                    .text_color(t.text)
+                    .hover_fade("sidebar-local", gpui::transparent_black(), t.row_hover)
+                    .on_click(cx.listener(|s, _, w, cx| s.open_local_terminal(w, cx)))
+                    .child(icon(icons::TERMINAL).size(px(14.)).text_color(t.accent))
+                    .child(tr("Local Terminal")),
+            ),
+        )
         .child(list)
         .child(footer(t, cx))
 }

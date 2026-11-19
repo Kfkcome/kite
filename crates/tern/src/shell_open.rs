@@ -56,6 +56,12 @@ impl Shell {
         }
     }
 
+    /// Opens a new tab running the user's local login shell.
+    pub fn open_local_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = tr("Local Terminal").to_owned();
+        self.open_tab(Launch::Local, &name, window, cx);
+    }
+
     pub(super) fn open_tab(
         &mut self,
         launch: Launch,
@@ -89,6 +95,7 @@ impl Shell {
         let launch = match launch {
             Launch::Ssh(spec) => Launch::Ssh(with_dev_known_hosts(spec)),
             Launch::SshIdle(spec) => Launch::SshIdle(with_dev_known_hosts(spec)),
+            Launch::Local => Launch::Local,
         };
         let theme = self.terminal_theme(alias);
         let auth = self.auth_for(alias);

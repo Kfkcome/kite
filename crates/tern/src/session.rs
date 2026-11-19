@@ -34,12 +34,16 @@ pub enum Launch {
     /// A connection that waits for Enter before it dials, so reopening many tabs at launch
     /// does not hit every server at once.
     SshIdle(ConnectSpec),
+    /// A local login shell attached to a PTY.
+    Local,
 }
 
 /// Where the session connects, and the live connection once there is one.
 struct Link {
     spec: ConnectSpec,
+    is_local: bool,
     handle: Option<SessionHandle>,
+    local: Option<std::sync::Arc<tern_term::LocalPty>>,
     /// Names of vault keys offered at login. They are looked up each time the session dials,
     /// so the spec never holds key material between connections.
     vault_keys: Vec<String>,
@@ -148,10 +152,16 @@ impl Session {
                 this.on_terminal_event(event, cx);
             });
             let idle = matches!(launch, Launch::SshIdle(_));
-            let (Launch::Ssh(spec) | Launch::SshIdle(spec)) = launch;
+            let is_local = matches!(launch, Launch::Local);
+            let spec = match launch {
+                Launch::Ssh(spec) | Launch::SshIdle(spec) => spec,
+                Launch::Local => ConnectSpec::default(),
+            };
             let mut link = Link {
                 spec,
+                is_local,
                 handle: None,
+                local: None,
                 vault_keys: auth.vault_keys,
                 password_command: auth.password_command,
                 sudo_command: auth.sudo_command,
@@ -220,6 +230,12 @@ impl Session {
     /// Starts the connection and the task that feeds its events back. Dropping the task stops
     /// the feed, so a reconnect never hears from the connection it replaced.
     fn start(link: &mut Link, size: TermSize, cx: &mut Context<Self>) -> Task<()> {
+        if link.is_local {
+            link.handle = None;
+            let (local, task) = crate::session_local::spawn(size, cx);
+            link.local = local;
+            return task;
+        }
         tracing::info!(host = %link.spec.host, port = link.spec.port, "session_open");
         let mut dial = link.spec.clone();
         for name in &link.vault_keys {
@@ -368,6 +384,9 @@ impl Session {
 
     /// `user@host:port` for the status line.
     pub fn label(&self) -> String {
+        if self.link.is_local {
+            return crate::i18n::tr("Local Terminal").to_owned();
+        }
         let spec = &self.link.spec;
         crate::statusline::host_label(&spec.user, &spec.host, spec.port)
     }
@@ -383,7 +402,7 @@ impl Session {
         self.latency.filter(|_| self.status == Status::Connected)
     }
 
-    fn on_session_event(&mut self, event: SessionEvent, cx: &mut Context<Self>) {
+    pub(crate) fn on_session_event(&mut self, event: SessionEvent, cx: &mut Context<Self>) {
         match event {
             SessionEvent::Latency(rtt) => self.latency = Some(rtt),
             SessionEvent::Data(bytes) => {
@@ -566,6 +585,9 @@ impl Session {
                 {
                     tracing::debug!(error = %e, "session_resize_skipped");
                 }
+                if let Some(local) = &self.link.local {
+                    local.resize(size.cols, size.rows);
+                }
             }
             TerminalEvent::Typed(bytes) => self.mirror_typed(bytes, cx),
             TerminalEvent::TitleChanged(_) | TerminalEvent::Bell => {}
@@ -598,6 +620,10 @@ impl Session {
     }
 
     fn send(&self, bytes: Vec<u8>) {
+        if let Some(local) = &self.link.local {
+            let _ = local.write(&bytes);
+            return;
+        }
         if let Some(handle) = &self.link.handle {
             match handle.write(bytes) {
                 Ok(()) | Err(InputError::Closed) => {}

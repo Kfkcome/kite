@@ -79,11 +79,20 @@ impl Shell {
             return;
         };
         let session = tab.session().clone();
+        self.open_sftp_for_session(session, window, cx);
+    }
+
+    pub(crate) fn open_sftp_for_session(
+        &mut self,
+        session: Entity<Session>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let session_id = session.entity_id();
         let Some(handle) = session.read(cx).ssh_handle() else {
             return self.notify_toast(
                 ToastKind::Critical,
-                "Not connected: no files to browse.",
+                tr("Not connected: no files to browse."),
                 cx,
             );
         };

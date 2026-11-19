@@ -157,25 +157,58 @@ impl Shell {
         }
         let t = &self.theme;
         let session = self.tabs.get(self.active)?.session().clone();
-        let (label, dot, latency, elapsed) = {
+        let (label, dot, latency, elapsed, forwards_count) = {
             let s = session.read(cx);
             (
                 s.label(),
                 Dot::of(&s.status, s.is_asking()),
                 s.latency(),
                 s.elapsed(),
+                s.active_forwards().len(),
             )
         };
-        let reconnect_btn = div()
-            .id("statusline-reconnect")
-            .size(px(18.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(4.))
-            .cursor_pointer()
-            .icon_button(crate::i18n::tr("Reconnect current session"), t)
+        let icon_btn = |id: &'static str, tip: &'static str| {
+            gpui::div()
+                .id(id)
+                .size(px(18.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .cursor_pointer()
+                .icon_button(crate::i18n::tr(tip), t)
+        };
+        let sftp_session = session.clone();
+        let sftp_open = self.panels.sftp.is_some();
+        let sftp_btn = icon_btn("statusline-sftp", "Browse files")
+            .on_click(cx.listener(move |shell, _, window, cx| {
+                if shell.panels.sftp.is_some() {
+                    shell.close_sftp(window, cx);
+                } else {
+                    shell.open_sftp_for_session(sftp_session.clone(), window, cx);
+                }
+            }))
+            .child(
+                crate::icons::icon(crate::icons::FOLDER)
+                    .size(px(12.))
+                    .text_color(if sftp_open { t.accent } else { t.muted }),
+            );
+        let fwd_session = session.clone();
+        let fwd_btn = icon_btn("statusline-forwards", "Port forwards")
+            .on_click(cx.listener(move |shell, e: &gpui::ClickEvent, window, cx| {
+                if shell.panels.forwards.is_some() {
+                    shell.close_forwards_panel(window, cx);
+                } else {
+                    shell.open_forwards_for_session(fwd_session.clone(), e.position(), window, cx);
+                }
+            }))
+            .child(
+                crate::icons::icon(crate::icons::GLOBE)
+                    .size(px(12.))
+                    .text_color(if forwards_count > 0 { t.accent } else { t.muted }),
+            );
+        let reconnect_btn = icon_btn("statusline-reconnect", "Reconnect current session")
             .on_click(cx.listener(move |shell, _, window, cx| {
                 session.update(cx, |s, cx| s.reconnect(cx));
                 shell.restore_focus(window, cx);
@@ -185,7 +218,12 @@ impl Shell {
                     .size(px(12.))
                     .text_color(t.muted),
             );
-        Some(statusline::render(t, &label, dot, latency, elapsed, bg).child(reconnect_btn))
+        Some(
+            statusline::render(t, &label, dot, latency, elapsed, bg)
+                .child(sftp_btn)
+                .child(fwd_btn)
+                .child(reconnect_btn),
+        )
     }
 
     /// Repaints once a second while the active tab is connected, so its session time counts.
