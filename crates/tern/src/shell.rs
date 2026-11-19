@@ -605,32 +605,6 @@ impl Render for Shell {
         let active_alias = infos.get(self.active).map(|i| i.alias.clone());
         let insert_at = self.pane_insert.map(|hint| hint.slot);
         let strip = tabs::strip(&infos, self.active, &self.tab_scroll, insert_at, &t, cx);
-        let query = self.search_query(cx);
-        let sidebar = sidebar::render(
-            &sidebar::SidebarState {
-                hosts: &self.hosts,
-                connections: &self.connections,
-                open: &infos,
-                active_alias: active_alias.as_deref(),
-                width: self.settings.sidebar_width,
-                collapsed_groups: &self.hostlist.collapsed_groups,
-                query: &query,
-                search: &self.hostlist.search,
-            },
-            &t,
-            cx,
-        );
-        let form = self.render_form(window, cx);
-        let import = self.render_import(window, cx);
-        let snippet_picker = self.render_snippet_picker(window, cx);
-        let snippet_form = self.render_snippet_form(window, cx);
-        let panel_bg = self.panel_background();
-        let hero = self.empty_view_hero(window);
-        let layers = self.backdrop();
-        let status_line = self.render_status_line(self.veil(panel_bg), cx);
-        let theme_picker = self.render_theme_picker(window, cx);
-        let toast = self.render_toast(window, cx);
-        let context_menu = self.render_menu(cx);
         let sidebar_now = self.sidebar_now();
         if self.sidebar_tween.is_some() {
             if sidebar_now == self.sidebar_target() {
@@ -639,6 +613,42 @@ impl Render for Shell {
                 window.request_animation_frame();
             }
         }
+        let show_workspace = self.settings_page.is_none();
+        let sidebar = if show_workspace && sidebar_now > 0.0 {
+            let query = self.search_query(cx);
+            sidebar::render(
+                &sidebar::SidebarState {
+                    hosts: &self.hosts,
+                    connections: &self.connections,
+                    open: &infos,
+                    active_alias: active_alias.as_deref(),
+                    width: self.settings.sidebar_width,
+                    collapsed_groups: &self.hostlist.collapsed_groups,
+                    query: &query,
+                    search: &self.hostlist.search,
+                },
+                &t,
+                cx,
+            )
+            .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+        let form = self.render_form(window, cx);
+        let import = self.render_import(window, cx);
+        let snippet_picker = self.render_snippet_picker(window, cx);
+        let snippet_form = self.render_snippet_form(window, cx);
+        let panel_bg = self.panel_background();
+        let hero = self.empty_view_hero(window);
+        let layers = self.backdrop();
+        let status_line = if show_workspace {
+            self.render_status_line(self.veil(panel_bg), cx)
+        } else {
+            None
+        };
+        let theme_picker = self.render_theme_picker(window, cx);
+        let toast = self.render_toast(window, cx);
+        let context_menu = self.render_menu(cx);
         let collapsed = self.settings.sidebar_collapsed;
         let handle = (!collapsed && self.sidebar_tween.is_none()).then(|| self.resize_handle(cx));
         let root = div()

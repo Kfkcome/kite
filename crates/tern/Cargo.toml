@@ -29,6 +29,9 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "registry"] }
 strip-ansi-escapes = "0.2.1"
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["poll"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
 # libmalloc keeps a freed 256 MiB scrypt block resident; mimalloc hands it back to the OS.
