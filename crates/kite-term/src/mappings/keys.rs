@@ -572,7 +572,10 @@ mod test {
         let mut alt_a = Keystroke::parse("alt-a").unwrap();
         alt_a.key_char = Some("å".into());
         assert!(ime_character(&alt_a, mode, true).is_none());
+        #[cfg(target_os = "macos")]
         assert_eq!(ime_character(&alt_a, mode, false), Some("å"));
+        #[cfg(not(target_os = "macos"))]
+        assert!(ime_character(&alt_a, mode, false).is_none());
 
         let mut ctrl = typed("c", "c");
         ctrl.modifiers.control = true;
