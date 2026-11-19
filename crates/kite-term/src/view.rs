@@ -66,7 +66,6 @@ pub struct TerminalView {
     resize_task: Option<Task<()>>,
     selection_drag: Option<SelectionDrag>,
     selection_scroll_task: Option<Task<()>>,
-    scroll_remainder: f32,
     pub(crate) scrollbar: ScrollbarState,
     /// A mouse-reporting button is held, so its release must be reported.
     reporting_button: bool,
@@ -128,7 +127,6 @@ impl TerminalView {
             resize_task: None,
             selection_drag: None,
             selection_scroll_task: None,
-            scroll_remainder: 0.0,
             scrollbar: ScrollbarState::default(),
             reporting_button: false,
             find: None,
@@ -238,6 +236,7 @@ impl TerminalView {
     /// write to the remote.
     fn send_input(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
         self.note_input();
+        self.scrollbar.reset_smooth();
         self.terminal.update(cx, |t, cx| {
             if t.display_offset() > 0 {
                 t.scroll_to_bottom();
@@ -300,6 +299,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        self.scrollbar.reset_smooth();
         if let Some(m) = scrollbar::view_metrics(self, cx) {
             let y = f32::from(event.position.y);
             let grab_offset_y = if m.contains_thumb_y(y) {
@@ -340,6 +340,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        self.scrollbar.reset_smooth();
         let Some(hit) = self.hit(event.position) else {
             return;
         };
@@ -508,42 +509,55 @@ impl TerminalView {
         self.selection_scroll_task = None;
     }
 
+    pub(crate) fn sub_line_offset(&self) -> f32 {
+        self.scrollbar.remainder
+    }
+
     fn on_scroll(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
         let line_h = self.geometry.map(|g| g.line_h).unwrap_or(16.0);
-        let lines = match event.delta {
-            ScrollDelta::Lines(delta) => delta.y,
-            ScrollDelta::Pixels(delta) => f32::from(delta.y) / line_h,
-        };
-        if event.touch_phase == TouchPhase::Started {
-            self.scroll_remainder = 0.0;
-        }
-        self.scroll_remainder += lines;
-        let step = self.scroll_remainder.trunc() as i32;
-        self.scroll_remainder -= step as f32;
-        if step == 0 {
+        let mode = self.mode(cx);
+        let alt_scroll_mode =
+            mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !event.modifiers.shift;
+        if self.reporting(event.modifiers.shift, cx) || alt_scroll_mode {
+            let lines = match event.delta {
+                ScrollDelta::Lines(delta) => delta.y,
+                ScrollDelta::Pixels(delta) => f32::from(delta.y) / line_h,
+            };
+            if event.touch_phase == TouchPhase::Started {
+                self.scrollbar.reset_smooth();
+            }
+            self.scrollbar.remainder += lines;
+            let step = self.scrollbar.remainder.trunc() as i32;
+            self.scrollbar.remainder -= step as f32;
+            if step == 0 {
+                return;
+            }
+            if self.reporting(event.modifiers.shift, cx) {
+                if let Some(hit) = self.hit(event.position)
+                    && let Some(reports) = scroll_report(Self::report_point(hit), step, event, mode)
+                {
+                    self.terminal.update(cx, |t, cx| {
+                        for report in reports {
+                            t.write(report, cx);
+                        }
+                    });
+                }
+            } else {
+                self.terminal
+                    .update(cx, |t, cx| t.write(alt_scroll(step), cx));
+            }
+            cx.stop_propagation();
             return;
         }
-        let mode = self.mode(cx);
-        if self.reporting(event.modifiers.shift, cx) {
-            if let Some(hit) = self.hit(event.position)
-                && let Some(reports) = scroll_report(Self::report_point(hit), step, event, mode)
-            {
-                for report in reports {
-                    self.terminal.update(cx, |t, cx| t.write(report, cx));
-                }
+        if event.touch_phase == TouchPhase::Started {
+            self.scrollbar.reset_smooth();
+        }
+        match event.delta {
+            ScrollDelta::Pixels(d) => {
+                let term = self.terminal.clone();
+                self.scrollbar.apply_smooth_lines(f32::from(d.y) / line_h, &term, cx);
             }
-        } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
-            && !event.modifiers.shift
-        {
-            // Full-screen apps without mouse mode (less, man): wheel = arrows.
-            self.terminal
-                .update(cx, |t, cx| t.write(alt_scroll(step), cx));
-        } else {
-            self.terminal.update(cx, |t, cx| {
-                t.scroll(step);
-                cx.notify();
-            });
-            self.scrollbar.show(cx);
+            ScrollDelta::Lines(d) => self.scrollbar.queue_smooth_lines(d.y, cx),
         }
         cx.stop_propagation();
     }

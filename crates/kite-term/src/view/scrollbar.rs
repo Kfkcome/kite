@@ -35,6 +35,9 @@ pub(crate) struct ScrollbarState {
     pub hover: bool,
     pub drag: Option<ScrollbarDrag>,
     hide_task: Option<Task<()>>,
+    pub remainder: f32,
+    smooth_pending: f32,
+    smooth_task: Option<Task<()>>,
 }
 
 impl ScrollbarState {
@@ -83,6 +86,74 @@ impl ScrollbarState {
             cx.notify();
         });
         self.show(cx);
+    }
+
+    pub(crate) fn reset_smooth(&mut self) {
+        self.remainder = 0.0;
+        self.smooth_pending = 0.0;
+        self.smooth_task = None;
+    }
+
+    pub(crate) fn apply_smooth_lines(
+        &mut self,
+        lines: f32,
+        terminal: &Entity<Terminal>,
+        cx: &mut Context<TerminalView>,
+    ) {
+        self.remainder += lines;
+        let step = self.remainder.trunc() as i32;
+        self.remainder -= step as f32;
+        terminal.update(cx, |t, cx| {
+            if step != 0 {
+                t.scroll(step);
+            }
+            if t.display_offset() == 0 {
+                self.remainder = self.remainder.max(0.0);
+            }
+            if t.display_offset() >= t.history_size() {
+                self.remainder = self.remainder.min(0.0);
+            }
+            cx.notify();
+        });
+        self.show(cx);
+    }
+
+    pub(crate) fn queue_smooth_lines(&mut self, lines: f32, cx: &mut Context<TerminalView>) {
+        self.smooth_pending += lines;
+        if self.smooth_task.is_some() {
+            return;
+        }
+        self.smooth_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(8))
+                    .await;
+                let keep_going = this
+                    .update(cx, |view, cx| {
+                        let rem = view.scrollbar.smooth_pending;
+                        if rem.abs() < 0.001 {
+                            view.scrollbar.smooth_pending = 0.0;
+                            view.scrollbar.smooth_task = None;
+                            return false;
+                        }
+                        let step = if rem.abs() < 0.03 { rem } else { rem * 0.28 };
+                        view.scrollbar.smooth_pending -= step;
+                        let terminal = view.terminal.clone();
+                        view.scrollbar.apply_smooth_lines(step, &terminal, cx);
+                        if view.scrollbar.smooth_pending.abs() < 0.001 {
+                            view.scrollbar.smooth_pending = 0.0;
+                            view.scrollbar.smooth_task = None;
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        }));
     }
 }
 

@@ -632,12 +632,12 @@ impl Terminal {
 
     fn line_inner(
         &self,
-        viewport_row: usize,
+        viewport_row: i32,
         selection: Option<SelectionRange>,
         matches: &[(Match, bool)],
     ) -> Vec<CellSnapshot> {
         let offset = self.display_offset() as i32;
-        let line = Line(viewport_row as i32 - offset);
+        let line = Line(viewport_row - offset);
         let row = &self.term.grid()[line];
         (0..self.cols())
             .map(|col| {
@@ -668,7 +668,7 @@ impl Terminal {
     /// One viewport row (0 = top), honoring the scrollback offset.
     pub fn line(&self, viewport_row: usize) -> Vec<CellSnapshot> {
         self.line_inner(
-            viewport_row,
+            viewport_row as i32,
             self.selection_range(),
             &self.visible_matches(),
         )
@@ -680,9 +680,24 @@ impl Terminal {
         // semantic and line selections.
         let selection = self.selection_range();
         let matches = self.visible_matches();
-        (0..self.rows())
+        (0..self.rows() as i32)
             .map(|r| self.line_inner(r, selection, &matches))
             .collect()
+    }
+
+    /// Viewport rows plus up to one margin row before/after for sub-line smooth scrolling.
+    /// Returns `(start_row_index, rows)`.
+    pub fn lines_for_scroll(&self, sub_line: f32) -> (i32, Vec<Vec<CellSnapshot>>) {
+        let selection = self.selection_range();
+        let matches = self.visible_matches();
+        let before = i32::from(sub_line > 0.001 && self.display_offset() < self.history_size());
+        let after = i32::from(sub_line < -0.001 && self.display_offset() > 0);
+        let start = -before;
+        let end = self.rows() as i32 + after;
+        let rows = (start..end)
+            .map(|r| self.line_inner(r, selection, &matches))
+            .collect();
+        (start, rows)
     }
 
     /// Cursor in viewport coordinates; `None` when hidden or scrolled out.

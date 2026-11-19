@@ -45,6 +45,8 @@ pub struct TerminalPrepaint {
     /// Per row, the shaped segments and the grid column each starts at.
     lines: Vec<Vec<(usize, ShapedLine)>>,
     box_rows: Vec<Vec<BoxCell>>,
+    start_row: i32,
+    grid_rows: usize,
     cell_w: Pixels,
     line_h: Pixels,
     origin: gpui::Point<Pixels>,
@@ -145,9 +147,11 @@ impl gpui::Element for TerminalElement {
         // A focused blinking cursor is dark in its off phase; an unfocused
         // one is a steady hollow box.
         let cursor_on = !self.focused || self.view.read(cx).cursor_on();
-        let (grid, cursor) = {
+        let sub_line = self.view.read(cx).sub_line_offset();
+        let origin = point(origin.x, origin.y + px(sub_line * f32::from(line_h)));
+        let ((start_row, grid), cursor) = {
             let t = terminal.read(cx);
-            (t.lines(), t.cursor().filter(|_| cursor_on))
+            (t.lines_for_scroll(sub_line), t.cursor().filter(|_| cursor_on))
         };
 
         let mut bg_quads = Vec::new();
@@ -159,7 +163,8 @@ impl gpui::Element for TerminalElement {
             cursor.filter(|c| self.focused && matches!(c.shape, CursorShape::Block));
 
         for (row_ix, row) in grid.iter().enumerate() {
-            let y = origin.y + line_h * row_ix as f32;
+            let row_pos = start_row + row_ix as i32;
+            let y = origin.y + line_h * row_pos as f32;
             let quad_at = |start: usize, end: usize, color: Hsla| {
                 fill(
                     Bounds::new(
@@ -200,14 +205,25 @@ impl gpui::Element for TerminalElement {
                     _ => {}
                 }
             }
-            let cursor_col = block_cursor_col.filter(|c| c.row == row_ix).map(|c| c.col);
+            let cursor_col = block_cursor_col
+                .filter(|c| c.row as i32 == row_pos)
+                .map(|c| c.col);
             let (segments, boxes) = shape_row(row, &theme, &mono, font_size, cursor_col, window);
             lines.push(segments);
             box_rows.push(boxes);
         }
 
         let (cursor_under, cursor_over) = match cursor {
-            Some(c) => cursor_quads(c, &grid, &theme, self.focused, origin, cell_w, line_h),
+            Some(c) => cursor_quads(
+                c,
+                &grid,
+                start_row,
+                &theme,
+                self.focused,
+                origin,
+                cell_w,
+                line_h,
+            ),
             None => (None, None),
         };
 
@@ -232,6 +248,8 @@ impl gpui::Element for TerminalElement {
             sel_quads,
             lines,
             box_rows,
+            start_row,
+            grid_rows: rows as usize,
             cell_w,
             line_h,
             origin,
@@ -265,7 +283,7 @@ impl gpui::Element for TerminalElement {
                 window.paint_quad(quad);
             }
             for (ix, segments) in prepaint.lines.iter().enumerate() {
-                let y = origin.y + line_h * ix as f32;
+                let y = origin.y + line_h * (prepaint.start_row + ix as i32) as f32;
                 for (col, line) in segments {
                     let _ = line.paint(
                         point(origin.x + cell_w * *col as f32, y),
@@ -277,8 +295,9 @@ impl gpui::Element for TerminalElement {
                     );
                 }
             }
+            let box_origin = point(origin.x, origin.y + line_h * prepaint.start_row as f32);
             for (ix, boxes) in prepaint.box_rows.iter().enumerate() {
-                paint_box_row(boxes, origin, ix, cell_w, line_h, window);
+                paint_box_row(boxes, box_origin, ix, cell_w, line_h, window);
             }
             for quad in prepaint.link_quads.drain(..) {
                 window.paint_quad(quad);
@@ -287,7 +306,7 @@ impl gpui::Element for TerminalElement {
                 window.paint_quad(quad);
             }
             paint_ime_preedit(&self.view, origin, cell_w, line_h, window, cx);
-            paint_scrollbar(&self.view, bounds, prepaint.lines.len(), window, cx);
+            paint_scrollbar(&self.view, bounds, prepaint.grid_rows, window, cx);
         });
     }
 }
@@ -446,14 +465,16 @@ fn cjk_fallbacks() -> gpui::FontFallbacks {
 fn cursor_quads(
     c: CursorSnapshot,
     grid: &[Vec<CellSnapshot>],
+    start_row: i32,
     theme: &TerminalTheme,
     focused: bool,
     origin: gpui::Point<Pixels>,
     cell_w: Pixels,
     line_h: Pixels,
 ) -> (Option<PaintQuad>, Option<PaintQuad>) {
-    let wide = grid
-        .get(c.row)
+    let wide = usize::try_from(c.row as i32 - start_row)
+        .ok()
+        .and_then(|r| grid.get(r))
         .and_then(|r| r.get(c.col))
         .is_some_and(|cell| cell.wide);
     let w = if wide { cell_w * 2.0 } else { cell_w };
