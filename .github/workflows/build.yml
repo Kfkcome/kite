@@ -49,6 +49,15 @@ jobs:
         run: cargo build --release -p kite --target ${{ matrix.target }}
       - name: Test
         run: cargo test --workspace --target ${{ matrix.target }}
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ./scripts/bundle-app.sh
+          mkdir -p dist
+          name="kite-${{ steps.version.outputs.version }}-macos-arm64"
+          ditto -c -k --keepParent target/release/bundle/Kite.app "dist/$name.zip"
+          echo "ASSET=dist/$name.zip" >> "$GITHUB_ENV"
       - name: Package (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -72,7 +81,6 @@ jobs:
           Compress-Archive -Path dist/kite.exe, dist/LICENSE, dist/README.md -DestinationPath "dist/$name.zip" -Force
           "ASSET=dist/$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Upload the build
-        if: runner.os != 'macOS'
         uses: actions/upload-artifact@v7
         with:
           name: kite-${{ matrix.name }}

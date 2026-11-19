@@ -70,6 +70,15 @@
   - **本地加密保险箱（age）**：支持 PIN / 系统钥匙串解锁、外部密码管理器联动、`⌘\` 一键填 `sudo` 密码
   - 支持加密同步到你自己的私有 Git 仓库，不用注册账号、不用开会员
 
+## 下载与安装
+
+可直接前往 [Releases](https://github.com/Kfkcome/kite/releases) 下载对应平台构建产物（macOS Apple Silicon 请下载 `*-macos-arm64.zip`）。
+
+> **macOS 首次打开提示说明**
+> 由于当前版本未接入付费 Apple Developer 商业签名与公证，从浏览器下载后首次打开可能会触发 macOS Gatekeeper 拦截，任选以下一种方式即可永久放行：
+> - 将 `Kite.app` 拖进 `/Applications` 后，在终端执行一次：`xattr -cr /Applications/Kite.app`
+> - 或者打开一次后前往 **系统设置 → 隐私与安全性** 点击 **“仍要打开”**（通过 Homebrew Cask 安装也可使用 `--no-quarantine` 自动跳过）
+
 ## 构建与运行
 
 目前支持 **macOS**，需要安装 Rust 工具链（见 [docs/building.md](docs/building.md)）：
