@@ -542,16 +542,6 @@ impl Shell {
                                         cx.listener(|s, _, window, cx| s.open_import(window, cx)),
                                     ),
                             )
-                            .child(
-                                w::button(
-                                    &t,
-                                    "settings-import-netcatty",
-                                    tr("Import from Netcatty JSON…"),
-                                )
-                                .on_click(cx.listener(|s, _, window, cx| {
-                                    s.open_import_netcatty(window, cx)
-                                })),
-                            )
                             .child(w::button(&t, "settings-new", tr("New connection")).on_click(
                                 cx.listener(|s, _, window, cx| s.open_form(None, None, window, cx)),
                             )),

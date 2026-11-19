@@ -247,22 +247,6 @@ fn empty_state(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
                 .on_click(cx.listener(|s, _, w, cx| s.open_import(w, cx)))
                 .child(tr("Import from ~/.ssh/config…")),
         )
-        .child(
-            div()
-                .id("empty-import-netcatty")
-                .h(px(28.))
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(8.))
-                .cursor_pointer()
-                .text_size(px(13.))
-                .hover_fade("import-netcatty", t.row_hover, t.row_active)
-                .text_color(t.text)
-                .on_click(cx.listener(|s, _, w, cx| s.open_import_netcatty(w, cx)))
-                .child(tr("Import from Netcatty JSON…")),
-        )
 }
 
 /// zeron's `search_input_frame` (10 x 6 padding, 8 radius, 4 % ink) with a 13 pt magnifier.
