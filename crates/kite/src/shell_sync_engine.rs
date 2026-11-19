@@ -7,10 +7,10 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
-use serde::{Deserialize, Serialize};
 use kite_ssh::SecretString;
 use kite_sync::{Files, Gist, ItemPlan, Plan};
 use kite_vault::{Vault, VaultError};
+use serde::{Deserialize, Serialize};
 
 /// The files that travel besides the vault, by their name in the settings directory.
 /// `snippets.json` belongs to the snippets store; an older build's `decode` drops the name.

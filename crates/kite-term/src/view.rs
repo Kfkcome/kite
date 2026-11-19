@@ -316,16 +316,6 @@ impl TerminalView {
         cx.stop_propagation();
     }
 
-    fn on_scrollbar_drag_move(&mut self, y: f32, cx: &mut Context<Self>) {
-        let Some(drag) = self.scrollbar.drag else {
-            return;
-        };
-        if let Some(m) = scrollbar::view_metrics(self, cx) {
-            self.scrollbar
-                .drag_to(y, drag.grab_offset_y, m, &self.terminal, cx);
-        }
-    }
-
     pub(crate) fn on_scrollbar_mouse_up(&mut self, cx: &mut Context<Self>) {
         if self.scrollbar.drag.take().is_some() {
             self.scrollbar.schedule_hide(cx);
@@ -419,7 +409,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         if self.scrollbar.drag.is_some() {
-            self.on_scrollbar_drag_move(f32::from(event.position.y), cx);
+            scrollbar::drag_move(self, f32::from(event.position.y), cx);
             return;
         }
         self.update_hover(event.position, &event.modifiers, cx);
@@ -516,8 +506,8 @@ impl TerminalView {
     fn on_scroll(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
         let line_h = self.geometry.map(|g| g.line_h).unwrap_or(16.0);
         let mode = self.mode(cx);
-        let alt_scroll_mode =
-            mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !event.modifiers.shift;
+        let alt_scroll_mode = mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
+            && !event.modifiers.shift;
         if self.reporting(event.modifiers.shift, cx) || alt_scroll_mode {
             let lines = match event.delta {
                 ScrollDelta::Lines(delta) => delta.y,
@@ -555,7 +545,8 @@ impl TerminalView {
         match event.delta {
             ScrollDelta::Pixels(d) => {
                 let term = self.terminal.clone();
-                self.scrollbar.apply_smooth_lines(f32::from(d.y) / line_h, &term, cx);
+                self.scrollbar
+                    .apply_smooth_lines(f32::from(d.y) / line_h, &term, cx);
             }
             ScrollDelta::Lines(d) => self.scrollbar.queue_smooth_lines(d.y, cx),
         }
@@ -699,7 +690,7 @@ impl Render for TerminalView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_drag_move(cx.listener(
                 |this, e: &gpui::DragMoveEvent<ScrollbarDragHandle>, _, cx| {
-                    this.on_scrollbar_drag_move(f32::from(e.event.position.y), cx);
+                    scrollbar::drag_move(this, f32::from(e.event.position.y), cx);
                 },
             ))
             .on_modifiers_changed(cx.listener(Self::on_modifiers_changed))

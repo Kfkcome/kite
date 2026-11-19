@@ -206,7 +206,11 @@ impl Shell {
             .child(
                 crate::icons::icon(crate::icons::GLOBE)
                     .size(px(12.))
-                    .text_color(if forwards_count > 0 { t.accent } else { t.muted }),
+                    .text_color(if forwards_count > 0 {
+                        t.accent
+                    } else {
+                        t.muted
+                    }),
             );
         let reconnect_btn = icon_btn("statusline-reconnect", "Reconnect current session")
             .on_click(cx.listener(move |shell, _, window, cx| {

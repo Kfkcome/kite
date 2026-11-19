@@ -128,11 +128,9 @@ impl Shell {
                     .items_end()
                     .gap(px(8.))
                     .child(div().flex_1().child(row(tr("Key file"), &form.key, t)))
-                    .child(
-                        button("form-browse-key", tr("Browse…"), false, t).on_click(
-                            cx.listener(|shell, _, _, cx| shell.pick_connection_key_file(cx)),
-                        ),
-                    );
+                    .child(button("form-browse-key", tr("Browse…"), false, t).on_click(
+                        cx.listener(|shell, _, _, cx| shell.pick_connection_key_file(cx)),
+                    ));
                 section = section
                     .child(key_file_row)
                     .child(row(tr("Vault key"), &form.vault_key, t))

@@ -58,10 +58,7 @@ async fn handshake_socks5<S: AsyncRead + AsyncWrite + Unpin>(
     target_host: &str,
     target_port: u16,
 ) -> Result<(), Failure> {
-    let has_auth = proxy
-        .username
-        .as_deref()
-        .is_some_and(|u| !u.is_empty());
+    let has_auth = proxy.username.as_deref().is_some_and(|u| !u.is_empty());
     let greeting: &[u8] = if has_auth {
         &[0x05, 0x02, 0x00, 0x02]
     } else {
@@ -85,10 +82,10 @@ async fn handshake_socks5<S: AsyncRead + AsyncWrite + Unpin>(
         0x02 if has_auth => {
             let user = proxy.username.as_deref().unwrap_or_default().as_bytes();
             let pass = proxy.password.as_deref().unwrap_or_default().as_bytes();
-            let ulen = u8::try_from(user.len())
-                .map_err(|_| proxy_err("SOCKS5 username too long"))?;
-            let plen = u8::try_from(pass.len())
-                .map_err(|_| proxy_err("SOCKS5 password too long"))?;
+            let ulen =
+                u8::try_from(user.len()).map_err(|_| proxy_err("SOCKS5 username too long"))?;
+            let plen =
+                u8::try_from(pass.len()).map_err(|_| proxy_err("SOCKS5 password too long"))?;
             let mut auth = Vec::with_capacity(3 + user.len() + pass.len());
             auth.push(0x01);
             auth.push(ulen);
@@ -147,7 +144,10 @@ async fn handshake_socks5<S: AsyncRead + AsyncWrite + Unpin>(
         return Err(proxy_err("invalid SOCKS5 connect response"));
     }
     if head[1] != 0x00 {
-        return Err(proxy_err(format!("SOCKS5 connect failed (code {})", head[1])));
+        return Err(proxy_err(format!(
+            "SOCKS5 connect failed (code {})",
+            head[1]
+        )));
     }
     let addr_len = match head[3] {
         0x01 => 4,
@@ -246,6 +246,7 @@ fn encode_base64(input: &[u8]) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 

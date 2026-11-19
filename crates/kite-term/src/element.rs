@@ -151,7 +151,10 @@ impl gpui::Element for TerminalElement {
         let origin = point(origin.x, origin.y + px(sub_line * f32::from(line_h)));
         let ((start_row, grid), cursor) = {
             let t = terminal.read(cx);
-            (t.lines_for_scroll(sub_line), t.cursor().filter(|_| cursor_on))
+            (
+                t.lines_for_scroll(sub_line),
+                t.cursor().filter(|_| cursor_on),
+            )
         };
 
         let mut bg_quads = Vec::new();
@@ -214,16 +217,14 @@ impl gpui::Element for TerminalElement {
         }
 
         let (cursor_under, cursor_over) = match cursor {
-            Some(c) => cursor_quads(
-                c,
-                &grid,
-                start_row,
-                &theme,
-                self.focused,
-                origin,
-                cell_w,
-                line_h,
-            ),
+            Some(c) => {
+                let wide = usize::try_from(c.row as i32 - start_row)
+                    .ok()
+                    .and_then(|r| grid.get(r))
+                    .and_then(|r| r.get(c.col))
+                    .is_some_and(|cell| cell.wide);
+                cursor_quads(c, wide, &theme, self.focused, origin, cell_w, line_h)
+            }
             None => (None, None),
         };
 
@@ -464,19 +465,13 @@ fn cjk_fallbacks() -> gpui::FontFallbacks {
 /// (which is recolored to the background), everything else over it.
 fn cursor_quads(
     c: CursorSnapshot,
-    grid: &[Vec<CellSnapshot>],
-    start_row: i32,
+    wide: bool,
     theme: &TerminalTheme,
     focused: bool,
     origin: gpui::Point<Pixels>,
     cell_w: Pixels,
     line_h: Pixels,
 ) -> (Option<PaintQuad>, Option<PaintQuad>) {
-    let wide = usize::try_from(c.row as i32 - start_row)
-        .ok()
-        .and_then(|r| grid.get(r))
-        .and_then(|r| r.get(c.col))
-        .is_some_and(|cell| cell.wide);
     let w = if wide { cell_w * 2.0 } else { cell_w };
     let top_left = point(
         origin.x + cell_w * c.col as f32,

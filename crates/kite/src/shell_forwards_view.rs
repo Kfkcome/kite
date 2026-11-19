@@ -7,9 +7,9 @@ use gpui::{
 };
 use kite_ssh::Forward;
 
+use super::Shell;
 use super::connections_ui::button;
 use super::forwards_ui::{ForwardMode, ForwardsPanel, TunnelRow};
-use super::Shell;
 use crate::i18n::{fill, tr};
 use crate::settings_widgets::toggle;
 use crate::text_input::TextInput;
@@ -68,7 +68,13 @@ impl Shell {
                     }),
             );
 
-        let mut list = div().flex().flex_col().gap(px(3.)).max_h(px(190.)).id("forwards-list").overflow_y_scroll();
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .gap(px(3.))
+            .max_h(px(190.))
+            .id("forwards-list")
+            .overflow_y_scroll();
         if rows.is_empty() {
             list = list.child(
                 div()
@@ -80,7 +86,14 @@ impl Shell {
             );
         } else {
             for (ix, row) in rows.iter().enumerate() {
-                list = list.child(self.render_tunnel_row(ix, row, &session, &host_alias, is_saved_host, cx));
+                list = list.child(self.render_tunnel_row(
+                    ix,
+                    row,
+                    &session,
+                    &host_alias,
+                    is_saved_host,
+                    cx,
+                ));
             }
         }
 
@@ -398,12 +411,7 @@ impl Shell {
                                 cx.notify();
                             }))
                             .child(toggle(&t, panel.auto_start_new, "fwd-auto-toggle"))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(t.muted)
-                                    .child(tr("Auto-start")),
-                            ),
+                            .child(div().text_xs().text_color(t.muted).child(tr("Auto-start"))),
                     )
                 })
                 .into_any_element()

@@ -105,13 +105,15 @@ impl Shell {
                     .truncate()
                     .child(SharedString::from(label.to_owned())),
             )
-            .child(pane_btn("pane-sftp", "Browse files", crate::icons::FOLDER).on_click(
-                cx.listener(move |shell, _, window, cx| {
-                    if let Some(session) = pane_session(shell) {
-                        shell.open_sftp_for_session(session, window, cx);
-                    }
-                }),
-            ))
+            .child(
+                pane_btn("pane-sftp", "Browse files", crate::icons::FOLDER).on_click(cx.listener(
+                    move |shell, _, window, cx| {
+                        if let Some(session) = pane_session(shell) {
+                            shell.open_sftp_for_session(session, window, cx);
+                        }
+                    },
+                )),
+            )
             .child(
                 pane_btn("pane-forwards", "Port forwards", crate::icons::GLOBE).on_click(
                     cx.listener(move |shell, e: &gpui::ClickEvent, window, cx| {

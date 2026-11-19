@@ -10,9 +10,9 @@ use gpui::{
     KeyDownEvent, ParentElement, Pixels, ScrollHandle, SharedString, Size,
     StatefulInteractiveElement, Styled, Window, actions, anchored, deferred, div, point, px,
 };
+use kite_ssh::HostEntry;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
-use kite_ssh::HostEntry;
 
 use crate::empty_state;
 use crate::i18n::{fill, tr};

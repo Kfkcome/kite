@@ -6,7 +6,7 @@ use gpui::{
     Transformation, div, percentage, px,
 };
 
-use super::{ConnectionForm, button, row};
+use super::ConnectionForm;
 use crate::connections::{Connection, DEFAULT_KEEP_ALIVE};
 use crate::hover::HoverFade as _;
 use crate::i18n::tr;
@@ -14,7 +14,8 @@ use crate::icons::{self, icon};
 use crate::settings_widgets::toggle;
 use crate::shell::Shell;
 use crate::text_input::TextInput;
-use gpui::Entity;
+use crate::theme::Theme;
+use gpui::{Entity, SharedString};
 use kite_ssh::ProxyKind;
 
 pub(super) struct ProxyFields {
@@ -43,10 +44,26 @@ impl ProxyFields {
         };
         Self {
             kind: proxy.map(|p| p.kind),
-            host: f("127.0.0.1", false, proxy.map_or_else(String::new, |p| p.host.clone())),
-            port: f("7890", false, proxy.map_or_else(String::new, |p| p.port.to_string())),
-            user: f(tr("Optional"), false, proxy.and_then(|p| p.username.clone()).unwrap_or_default()),
-            pass: f(tr("Optional"), true, proxy.and_then(|p| p.password.clone()).unwrap_or_default()),
+            host: f(
+                "127.0.0.1",
+                false,
+                proxy.map_or_else(String::new, |p| p.host.clone()),
+            ),
+            port: f(
+                "7890",
+                false,
+                proxy.map_or_else(String::new, |p| p.port.to_string()),
+            ),
+            user: f(
+                tr("Optional"),
+                false,
+                proxy.and_then(|p| p.username.clone()).unwrap_or_default(),
+            ),
+            pass: f(
+                tr("Optional"),
+                true,
+                proxy.and_then(|p| p.password.clone()).unwrap_or_default(),
+            ),
         }
     }
 }
@@ -138,12 +155,14 @@ impl Shell {
                                     proxy_kind == Some(ProxyKind::Socks5),
                                     t,
                                 )
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    if let Some(f) = s.form.as_mut() {
-                                        f.proxy.kind = Some(ProxyKind::Socks5);
-                                    }
-                                    cx.notify();
-                                })),
+                                .on_click(cx.listener(
+                                    |s, _, _, cx| {
+                                        if let Some(f) = s.form.as_mut() {
+                                            f.proxy.kind = Some(ProxyKind::Socks5);
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
                             )
                             .child(
                                 button(
@@ -152,12 +171,14 @@ impl Shell {
                                     proxy_kind == Some(ProxyKind::Http),
                                     t,
                                 )
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    if let Some(f) = s.form.as_mut() {
-                                        f.proxy.kind = Some(ProxyKind::Http);
-                                    }
-                                    cx.notify();
-                                })),
+                                .on_click(cx.listener(
+                                    |s, _, _, cx| {
+                                        if let Some(f) = s.form.as_mut() {
+                                            f.proxy.kind = Some(ProxyKind::Http);
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
                             ),
                     );
                 el.child(proxy_tabs)
@@ -166,31 +187,31 @@ impl Shell {
                             div()
                                 .flex()
                                 .gap(px(10.))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .child(row(tr("Proxy host"), &form.proxy.host, t)),
-                                )
-                                .child(
-                                    div()
-                                        .w(px(96.))
-                                        .child(row(tr("Proxy port"), &form.proxy.port, t)),
-                                ),
+                                .child(div().flex_1().child(row(
+                                    tr("Proxy host"),
+                                    &form.proxy.host,
+                                    t,
+                                )))
+                                .child(div().w(px(96.)).child(row(
+                                    tr("Proxy port"),
+                                    &form.proxy.port,
+                                    t,
+                                ))),
                         )
                         .child(
                             div()
                                 .flex()
                                 .gap(px(10.))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .child(row(tr("Proxy username"), &form.proxy.user, t)),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .child(row(tr("Proxy password"), &form.proxy.pass, t)),
-                                ),
+                                .child(div().flex_1().child(row(
+                                    tr("Proxy username"),
+                                    &form.proxy.user,
+                                    t,
+                                )))
+                                .child(div().flex_1().child(row(
+                                    tr("Proxy password"),
+                                    &form.proxy.pass,
+                                    t,
+                                ))),
                         )
                     })
                     .child(row(tr("Jump host"), &form.proxy_jump, t))
@@ -309,6 +330,59 @@ impl Shell {
         }
         list
     }
+}
+
+pub(crate) fn row(
+    label: &'static str,
+    input: &Entity<TextInput>,
+    t: &Theme,
+) -> impl IntoElement + use<> {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(div().text_xs().text_color(t.muted).child(label))
+        .child(
+            div()
+                .h(px(30.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .rounded(px(8.))
+                .border_1()
+                .border_color(t.border)
+                .bg(t.row_hover)
+                .overflow_hidden()
+                .text_sm()
+                .child(input.clone()),
+        )
+}
+
+pub(crate) fn note(text: &'static str, t: &Theme) -> impl IntoElement + use<> {
+    div().text_xs().text_color(t.muted).child(text)
+}
+
+pub(crate) fn button(
+    id: &'static str,
+    label: impl Into<SharedString>,
+    primary: bool,
+    t: &Theme,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .h(px(28.))
+        .px(px(12.))
+        .flex()
+        .items_center()
+        .rounded(px(8.))
+        .text_sm()
+        .cursor_pointer()
+        .when(primary, |el| el.bg(t.accent).text_color(t.on_accent))
+        .when(!primary, |el| {
+            el.hover_fade(format!("form-button-{id}"), t.row_hover, t.row_active)
+                .text_color(t.text)
+        })
+        .child(label.into())
 }
 
 #[cfg(test)]

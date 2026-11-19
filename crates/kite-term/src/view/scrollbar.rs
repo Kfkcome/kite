@@ -215,6 +215,16 @@ pub(crate) fn metrics(
     })
 }
 
+pub(crate) fn drag_move(view: &mut TerminalView, y: f32, cx: &mut Context<TerminalView>) {
+    let Some(drag) = view.scrollbar.drag else {
+        return;
+    };
+    if let Some(m) = view_metrics(view, cx) {
+        view.scrollbar
+            .drag_to(y, drag.grab_offset_y, m, &view.terminal, cx);
+    }
+}
+
 pub(crate) fn view_metrics(view: &TerminalView, cx: &App) -> Option<ScrollbarMetrics> {
     let g = view.geometry?;
     let t = view.terminal.read(cx);
@@ -263,6 +273,7 @@ pub(crate) fn render_strip(cx: &mut Context<TerminalView>) -> impl IntoElement +
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use gpui::{point, px, size};

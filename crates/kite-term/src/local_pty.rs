@@ -36,9 +36,14 @@ impl Drop for LocalPty {
 
 impl LocalPty {
     /// Spawns the user's default login shell at `cols` x `rows`.
+    ///
+    /// # Errors
+    /// Returns an error if the PTY cannot be created or its file descriptor cannot be cloned.
     pub fn spawn(cols: u16, rows: u16) -> io::Result<Self> {
-        let mut opts = Options::default();
-        opts.working_directory = std::env::home_dir();
+        let mut opts = Options {
+            working_directory: std::env::home_dir(),
+            ..Options::default()
+        };
         opts.env.insert("TERM".into(), "xterm-256color".into());
         opts.env.insert("COLORTERM".into(), "truecolor".into());
         let size = WindowSize {
@@ -56,6 +61,9 @@ impl LocalPty {
     }
 
     /// Clones the underlying PTY file descriptor for a blocking reader thread.
+    ///
+    /// # Errors
+    /// Returns an error if the PTY is already closed or `try_clone` fails.
     pub fn reader(&self) -> io::Result<File> {
         let guard = self.pty.lock().unwrap_or_else(|e| e.into_inner());
         let pty = guard
@@ -65,6 +73,9 @@ impl LocalPty {
     }
 
     /// Writes user input bytes to the local shell.
+    ///
+    /// # Errors
+    /// Returns an error if the PTY is closed or the underlying write fails.
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
         let mut guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         let Some(writer) = guard.as_mut() else {

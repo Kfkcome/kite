@@ -5,8 +5,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 use kite_ssh::{Forward, HostEntry, JumpHop, NetProxy, ProxyKind};
+use serde::{Deserialize, Serialize};
 
 use crate::forward_spec;
 

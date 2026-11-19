@@ -427,7 +427,8 @@ impl Terminal {
         let target = offset.min(self.history_size());
         let current = self.display_offset();
         if target != current {
-            self.term.scroll_display(Scroll::Delta(target as i32 - current as i32));
+            self.term
+                .scroll_display(Scroll::Delta(target as i32 - current as i32));
         }
     }
 

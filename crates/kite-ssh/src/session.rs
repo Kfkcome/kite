@@ -269,7 +269,8 @@ async fn run_inner(
             }
             (None, Some(net_proxy)) => {
                 tracing::debug!(proxy_host = %net_proxy.host, proxy_port = net_proxy.port, "ssh_net_proxy_start");
-                let stream = crate::proxy::connect_via_proxy(net_proxy, &spec.host, spec.port).await?;
+                let stream =
+                    crate::proxy::connect_via_proxy(net_proxy, &spec.host, spec.port).await?;
                 Ok(client::connect_stream(cfg, stream, handler).await)
             }
             (None, None) => Ok::<_, Failure>(

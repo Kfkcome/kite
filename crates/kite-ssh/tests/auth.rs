@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use kite_ssh::{ChallengePrompt, ConnectSpec, Prompt, SecretString, SessionEvent, TermSize};
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Response, Session};
 use russh::{Channel, ChannelId, MethodKind, MethodSet};
-use kite_ssh::{ChallengePrompt, ConnectSpec, Prompt, SecretString, SessionEvent, TermSize};
 
 #[derive(Clone)]
 enum Want {

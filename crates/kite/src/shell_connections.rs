@@ -2,7 +2,6 @@
 //! Adding, editing and removing connections: the form, its vault step, and the list changes.
 
 use crate::hover::HoverFade as _;
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled,
@@ -17,7 +16,6 @@ use crate::i18n::{fill, tr};
 use crate::keeper::Keeper;
 use crate::sidebar;
 use crate::text_input::{InputColors, TextInput};
-use crate::theme::Theme;
 
 #[path = "shell_connection_advanced.rs"]
 mod advanced;
@@ -79,11 +77,26 @@ enum VaultStep {
 impl ConnectionForm {
     fn fields(&self) -> Vec<&Entity<TextInput>> {
         let mut all = vec![
-            &self.name, &self.host, &self.port, &self.user, &self.key, &self.group, &self.tags,
-            &self.proxy_jump, &self.proxy.host, &self.proxy.port, &self.proxy.user,
-            &self.proxy.pass, &self.proxy_command, &self.keep_alive, &self.vault_key,
-            &self.password_command, &self.sudo_password_command, &self.password,
-            &self.vault_pass, &self.vault_repeat,
+            &self.name,
+            &self.host,
+            &self.port,
+            &self.user,
+            &self.key,
+            &self.group,
+            &self.tags,
+            &self.proxy_jump,
+            &self.proxy.host,
+            &self.proxy.port,
+            &self.proxy.user,
+            &self.proxy.pass,
+            &self.proxy_command,
+            &self.keep_alive,
+            &self.vault_key,
+            &self.password_command,
+            &self.sudo_password_command,
+            &self.password,
+            &self.vault_pass,
+            &self.vault_repeat,
         ];
         all.extend(&self.forwards);
         all
@@ -136,7 +149,10 @@ impl Shell {
                 input
             })
         };
-        let has_key = d.identity_file.as_deref().is_some_and(|s| !s.trim().is_empty())
+        let has_key = d
+            .identity_file
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
             || d.vault_key.as_deref().is_some_and(|s| !s.trim().is_empty());
         let auth_mode = if has_saved_password && !has_key {
             AuthMode::Password
@@ -186,7 +202,11 @@ impl Shell {
             ),
             forward_agent: d.forward_agent,
             proxy,
-            proxy_command: field("ssh -W %h:%p bastion", false, d.proxy_command.unwrap_or_default()),
+            proxy_command: field(
+                "ssh -W %h:%p bastion",
+                false,
+                d.proxy_command.unwrap_or_default(),
+            ),
             vault_key: field(
                 tr("Name of a key in the vault (optional)"),
                 false,
@@ -312,7 +332,12 @@ impl Shell {
         // A collapsed section is skipped; its fields are not on screen to land on.
         if form.advanced_open {
             if form.proxy.kind.is_some() {
-                fields.extend([&form.proxy.host, &form.proxy.port, &form.proxy.user, &form.proxy.pass]);
+                fields.extend([
+                    &form.proxy.host,
+                    &form.proxy.port,
+                    &form.proxy.user,
+                    &form.proxy.pass,
+                ]);
             }
             fields.extend([&form.proxy_jump, &form.proxy_command, &form.keep_alive]);
             fields.extend(&form.forwards);
@@ -406,7 +431,12 @@ impl Shell {
         let connection = match connections::validate(&draft, &others, &self.connections) {
             Ok(c) => Connection {
                 agent_socket: form.agent_socket.clone(),
-                manual_forwards: form.manual_forwards.iter().filter(|m| c.forwards.contains(m)).cloned().collect(),
+                manual_forwards: form
+                    .manual_forwards
+                    .iter()
+                    .filter(|m| c.forwards.contains(m))
+                    .cloned()
+                    .collect(),
                 ..c
             },
             Err(e) => {
@@ -728,58 +758,7 @@ impl Shell {
     }
 }
 
-pub(super) fn row(
-    label: &'static str,
-    input: &Entity<TextInput>,
-    t: &Theme,
-) -> impl IntoElement + use<> {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(div().text_xs().text_color(t.muted).child(label))
-        .child(
-            div()
-                .h(px(30.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .rounded(px(8.))
-                .border_1()
-                .border_color(t.border)
-                .bg(t.row_hover)
-                .overflow_hidden()
-                .text_sm()
-                .child(input.clone()),
-        )
-}
-
-pub(super) fn note(text: &'static str, t: &Theme) -> impl IntoElement + use<> {
-    div().text_xs().text_color(t.muted).child(text)
-}
-
-pub(crate) fn button(
-    id: &'static str,
-    label: impl Into<SharedString>,
-    primary: bool,
-    t: &Theme,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .h(px(28.))
-        .px(px(12.))
-        .flex()
-        .items_center()
-        .rounded(px(8.))
-        .text_sm()
-        .cursor_pointer()
-        .when(primary, |el| el.bg(t.accent).text_color(t.on_accent))
-        .when(!primary, |el| {
-            el.hover_fade(format!("form-button-{id}"), t.row_hover, t.row_active)
-                .text_color(t.text)
-        })
-        .child(label.into())
-}
+pub(crate) use advanced::{button, note, row};
 
 /// A typed password is what makes the form need the vault; an empty field never asks the Keychain.
 fn wants_keychain(password: &str) -> bool {

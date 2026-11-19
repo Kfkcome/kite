@@ -482,41 +482,6 @@ impl Shell {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builds_local_remote_and_dynamic_forwards_with_defaults() {
-        assert_eq!(
-            build_forward(ForwardMode::Local, "8080", "", "5432", ""),
-            Ok(Forward::Local {
-                bind_host: "127.0.0.1".into(),
-                bind_port: 8080,
-                dest_host: "127.0.0.1".into(),
-                dest_port: 5432,
-            })
-        );
-        assert_eq!(
-            build_forward(ForwardMode::Remote, "0", "localhost", "3000", "0.0.0.0"),
-            Ok(Forward::Remote {
-                bind_host: "0.0.0.0".into(),
-                bind_port: 0,
-                dest_host: "localhost".into(),
-                dest_port: 3000,
-            })
-        );
-        assert_eq!(
-            build_forward(ForwardMode::Dynamic, "1080", "", "", ""),
-            Ok(Forward::Dynamic {
-                bind_host: "127.0.0.1".into(),
-                bind_port: 1080,
-            })
-        );
-        assert!(build_forward(ForwardMode::Local, "0", "db", "5432", "").is_err());
-    }
-}
-
 // "Fill password": the shortcut and the toasts sessions raise about it; what it does is in
 // `session_fill.rs`.
 
@@ -592,5 +557,40 @@ impl Shell {
             SessionNote::Message(text) => self.notify_toast(ToastKind::Default, text.clone(), cx),
             SessionNote::Problem(text) => self.notify_toast(ToastKind::Critical, text.clone(), cx),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_local_remote_and_dynamic_forwards_with_defaults() {
+        assert_eq!(
+            build_forward(ForwardMode::Local, "8080", "", "5432", ""),
+            Ok(Forward::Local {
+                bind_host: "127.0.0.1".into(),
+                bind_port: 8080,
+                dest_host: "127.0.0.1".into(),
+                dest_port: 5432,
+            })
+        );
+        assert_eq!(
+            build_forward(ForwardMode::Remote, "0", "localhost", "3000", "0.0.0.0"),
+            Ok(Forward::Remote {
+                bind_host: "0.0.0.0".into(),
+                bind_port: 0,
+                dest_host: "localhost".into(),
+                dest_port: 3000,
+            })
+        );
+        assert_eq!(
+            build_forward(ForwardMode::Dynamic, "1080", "", "", ""),
+            Ok(Forward::Dynamic {
+                bind_host: "127.0.0.1".into(),
+                bind_port: 1080,
+            })
+        );
+        assert!(build_forward(ForwardMode::Local, "0", "db", "5432", "").is_err());
     }
 }

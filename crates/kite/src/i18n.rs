@@ -700,7 +700,10 @@ const ZH: &[(&str, &str)] = &[
         "The vault is locked: unlock it, then save the entry again",
         "保险箱已锁定：请先解锁，再重新保存该条目",
     ),
-    ("The vault passphrases differ.", "两次输入的保险箱口令不一致。"),
+    (
+        "The vault passphrases differ.",
+        "两次输入的保险箱口令不一致。",
+    ),
     ("Local Terminal", "本地终端"),
     ("Open a local shell", "打开本地终端"),
     ("Auto", "自动"),
@@ -722,7 +725,10 @@ const ZH: &[(&str, &str)] = &[
     ("Local host", "本地主机"),
     ("Local port", "本地端口"),
     ("No port forwards configured yet", "暂未配置端口转发"),
-    ("Port must be between 1 and 65535.", "端口必须在 1 到 65535 之间。"),
+    (
+        "Port must be between 1 and 65535.",
+        "端口必须在 1 到 65535 之间。",
+    ),
     ("Remote (-R)", "远程转发 (-R)"),
     ("Remote port", "远端端口"),
     ("Save to host", "保存到主机"),
@@ -734,7 +740,10 @@ const ZH: &[(&str, &str)] = &[
     ("Target port", "目标端口"),
     ("None running", "当前无运行中的转发"),
     ("Not connected.", "未连接。"),
-    ("Not connected: no files to browse.", "未连接：无法浏览文件。"),
+    (
+        "Not connected: no files to browse.",
+        "未连接：无法浏览文件。",
+    ),
     ("Port forwards on {}", "{} 的端口转发"),
     ("Stop", "停止"),
 ];
