@@ -60,6 +60,9 @@ pub struct Connection {
     /// Port forwards started once connected, each as `-L`/`-R`/`-D` text (see `forward_spec`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forwards: Vec<String>,
+    /// Subset of `forwards` that are saved on the host for manual start only (not auto-started on connect).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_forwards: Vec<String>,
 }
 
 /// What the form shows for keep-alive when the connection sets none; matches tern-ssh.
@@ -91,7 +94,14 @@ impl Connection {
             forwards: self
                 .forwards
                 .iter()
-                .filter_map(|f| forward_spec::parse(f).ok())
+                .filter_map(|f| {
+                    let parsed = forward_spec::parse(f).ok()?;
+                    let is_manual = self
+                        .manual_forwards
+                        .iter()
+                        .any(|m| forward_spec::parse(m).ok().as_ref() == Some(&parsed) || m == f);
+                    (!is_manual).then_some(parsed)
+                })
                 .collect(),
             forward_agent: self.forward_agent,
             agent_socket: self.agent_socket.as_deref().map(expand_home),
@@ -137,6 +147,7 @@ impl Connection {
                 .server_alive_interval
                 .map(|d| u32::try_from(d.as_secs()).unwrap_or(u32::MAX)),
             forwards: entry.forwards.iter().map(Forward::to_string).collect(),
+            manual_forwards: Vec::new(),
         }
     }
 }
@@ -379,6 +390,7 @@ pub fn validate(draft: &Draft, others: &[&str], all: &[Connection]) -> Result<Co
         agent_socket: None,
         keep_alive,
         forwards,
+        manual_forwards: Vec::new(),
     })
 }
 

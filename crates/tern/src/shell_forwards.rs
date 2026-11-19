@@ -38,6 +38,7 @@ pub(super) struct TunnelRow {
     pub running_id: Option<u64>,
     pub bound_port: Option<u16>,
     pub saved: bool,
+    pub auto_start: bool,
 }
 
 pub(super) struct ForwardsPanel {
@@ -49,6 +50,7 @@ pub(super) struct ForwardsPanel {
     pub dest_port: Entity<TextInput>,
     pub bind_host: Entity<TextInput>,
     pub save_to_host: bool,
+    pub auto_start_new: bool,
     pub error: Option<String>,
 }
 
@@ -166,6 +168,7 @@ impl Shell {
             dest_port,
             bind_host,
             save_to_host,
+            auto_start_new: true,
             error: None,
         });
         cx.notify();
@@ -192,12 +195,18 @@ impl Shell {
         cx: &gpui::App,
     ) -> Vec<TunnelRow> {
         let active = session.read(cx).active_forwards();
-        let saved: Vec<Forward> = self
-            .connections
-            .iter()
-            .find(|c| c.name == host_alias)
+        let conn = self.connections.iter().find(|c| c.name == host_alias);
+        let saved: Vec<Forward> = conn
             .map(|c| {
                 c.forwards
+                    .iter()
+                    .filter_map(|s| forward_spec::parse(s).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let manual: Vec<Forward> = conn
+            .map(|c| {
+                c.manual_forwards
                     .iter()
                     .filter_map(|s| forward_spec::parse(s).ok())
                     .collect()
@@ -206,21 +215,27 @@ impl Shell {
 
         let mut rows: Vec<TunnelRow> = active
             .iter()
-            .map(|info| TunnelRow {
-                forward: info.forward.clone(),
-                running_id: Some(info.id),
-                bound_port: Some(info.bound_port),
-                saved: saved.contains(&info.forward),
+            .map(|info| {
+                let is_saved = saved.contains(&info.forward);
+                TunnelRow {
+                    forward: info.forward.clone(),
+                    running_id: Some(info.id),
+                    bound_port: Some(info.bound_port),
+                    saved: is_saved,
+                    auto_start: is_saved && !manual.contains(&info.forward),
+                }
             })
             .collect();
 
         for fwd in saved {
             if !rows.iter().any(|r| r.forward == fwd) {
+                let auto_start = !manual.contains(&fwd);
                 rows.push(TunnelRow {
                     forward: fwd,
                     running_id: None,
                     bound_port: None,
                     saved: true,
+                    auto_start,
                 });
             }
         }
@@ -246,6 +261,7 @@ impl Shell {
         };
         let session = panel.session.clone();
         let save_to_host = panel.save_to_host;
+        let auto_start = panel.auto_start_new;
         let host_alias = self
             .tab_for_session(&session)
             .and_then(|t| t.panes.iter().find(|p| p.session == session))
@@ -269,7 +285,7 @@ impl Shell {
                 .update(cx, |i, cx| i.set_text(SharedString::default(), cx));
         }
         if save_to_host {
-            self.save_host_forward(&host_alias, &forward, cx);
+            self.save_host_forward(&host_alias, &forward, auto_start, cx);
         }
         session.update(cx, |s, cx| s.add_forward(forward, cx));
     }
@@ -321,16 +337,59 @@ impl Shell {
         });
     }
 
-    pub(super) fn save_host_forward(&mut self, alias: &str, forward: &Forward, cx: &mut Context<Self>) {
+    pub(super) fn save_host_forward(
+        &mut self,
+        alias: &str,
+        forward: &Forward,
+        auto_start: bool,
+        cx: &mut Context<Self>,
+    ) {
         let spec = forward.to_string();
         let mut next = self.connections.clone();
         let Some(conn) = next.iter_mut().find(|c| c.name == alias) else {
             return;
         };
-        if conn.forwards.iter().any(|f| forward_spec::parse(f).ok().as_ref() == Some(forward)) {
-            return;
+        if !conn
+            .forwards
+            .iter()
+            .any(|f| forward_spec::parse(f).ok().as_ref() == Some(forward))
+        {
+            conn.forwards.push(spec.clone());
         }
-        conn.forwards.push(spec);
+        conn.manual_forwards
+            .retain(|f| forward_spec::parse(f).ok().as_ref() != Some(forward));
+        if !auto_start {
+            conn.manual_forwards.push(spec);
+        }
+        if let Some(dir) = crate::settings::dir()
+            && let Err(e) = connections::save(&dir, &next)
+        {
+            return self.notify_toast(ToastKind::Critical, e.to_string(), cx);
+        }
+        self.connections = next;
+        self.refresh_hosts();
+        cx.notify();
+    }
+
+    pub(super) fn toggle_host_forward_auto(
+        &mut self,
+        alias: &str,
+        forward: &Forward,
+        cx: &mut Context<Self>,
+    ) {
+        let mut next = self.connections.clone();
+        let Some(conn) = next.iter_mut().find(|c| c.name == alias) else {
+            return;
+        };
+        let was_manual = conn
+            .manual_forwards
+            .iter()
+            .any(|f| forward_spec::parse(f).ok().as_ref() == Some(forward));
+        conn.manual_forwards
+            .retain(|f| forward_spec::parse(f).ok().as_ref() != Some(forward));
+        if !was_manual {
+            conn.manual_forwards.push(forward.to_string());
+        }
         if let Some(dir) = crate::settings::dir()
             && let Err(e) = connections::save(&dir, &next)
         {
@@ -353,6 +412,8 @@ impl Shell {
         };
         let before = conn.forwards.len();
         conn.forwards
+            .retain(|f| forward_spec::parse(f).ok().as_ref() != Some(forward));
+        conn.manual_forwards
             .retain(|f| forward_spec::parse(f).ok().as_ref() != Some(forward));
         if conn.forwards.len() == before {
             return;

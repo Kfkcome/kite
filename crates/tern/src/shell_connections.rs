@@ -57,6 +57,7 @@ pub(super) struct ConnectionForm {
     password_command: Entity<TextInput>,
     sudo_password_command: Entity<TextInput>,
     agent_socket: Option<String>,
+    manual_forwards: Vec<String>,
     /// One input per port forward, as `-L`/`-R`/`-D` text; blank rows are ignored on save.
     forwards: Vec<Entity<TextInput>>,
     password: Entity<TextInput>,
@@ -210,6 +211,7 @@ impl Shell {
                 d.sudo_password_command.unwrap_or_default(),
             ),
             agent_socket: d.agent_socket,
+            manual_forwards: d.manual_forwards,
             forwards: d
                 .forwards
                 .iter()
@@ -404,6 +406,7 @@ impl Shell {
             Ok(c) => Connection {
                 proxy_command: form.proxy_command.clone(),
                 agent_socket: form.agent_socket.clone(),
+                manual_forwards: form.manual_forwards.iter().filter(|m| c.forwards.contains(m)).cloned().collect(),
                 ..c
             },
             Err(e) => {
@@ -785,11 +788,9 @@ fn wants_keychain(password: &str) -> bool {
 
 #[cfg(test)]
 mod keychain_tests {
-    use super::wants_keychain;
-
     #[test]
     fn only_a_typed_password_makes_the_form_ask_the_keychain() {
-        assert!(!wants_keychain(""));
-        assert!(wants_keychain("x"));
+        assert!(!super::wants_keychain(""));
+        assert!(super::wants_keychain("x"));
     }
 }

@@ -724,6 +724,8 @@ const ZH: &[(&str, &str)] = &[
     ),
     ("Local Terminal", "本地终端"),
     ("Open a local shell", "打开本地终端"),
+    ("Auto", "自动"),
+    ("Auto-start", "自动启动"),
     ("Bind address", "绑定地址"),
     ("Dynamic (-D)", "动态代理 (-D)"),
     ("Enter a port number.", "请输入端口号。"),

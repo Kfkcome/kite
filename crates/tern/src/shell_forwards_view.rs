@@ -177,11 +177,14 @@ impl Shell {
         let session_btn = session.clone();
         let fwd_start = row.forward.clone();
         let fwd_save = row.forward.clone();
+        let fwd_auto = row.forward.clone();
         let fwd_remove = row.forward.clone();
         let alias_save = host_alias.to_owned();
+        let alias_auto = host_alias.to_owned();
         let alias_remove = host_alias.to_owned();
         let running_id = row.running_id;
         let saved = row.saved;
+        let auto_start = row.auto_start;
 
         div()
             .id(("forward-row", ix))
@@ -231,9 +234,30 @@ impl Shell {
                         .text_color(t.accent)
                         .hover(|s| s.bg(t.row_active))
                         .on_click(cx.listener(move |shell, _, _, cx| {
-                            shell.save_host_forward(&alias_save, &fwd_save, cx);
+                            shell.save_host_forward(&alias_save, &fwd_save, true, cx);
                         }))
                         .child(tr("Save")),
+                )
+            })
+            .when(saved, |el| {
+                el.child(
+                    div()
+                        .id(("forward-auto", ix))
+                        .flex_none()
+                        .px(px(7.))
+                        .py(px(2.))
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .text_xs()
+                        .when(auto_start, |el| {
+                            el.bg(t.accent.opacity(0.16)).text_color(t.accent)
+                        })
+                        .when(!auto_start, |el| el.text_color(t.muted))
+                        .hover(|s| s.bg(t.row_active))
+                        .on_click(cx.listener(move |shell, _, _, cx| {
+                            shell.toggle_host_forward_auto(&alias_auto, &fwd_auto, cx);
+                        }))
+                        .child(tr("Auto")),
                 )
             })
             .child(
@@ -335,24 +359,53 @@ impl Shell {
 
         let save_control = if is_saved_host {
             div()
-                .id("forward-save-host")
                 .flex()
                 .items_center()
-                .gap(px(6.))
-                .cursor_pointer()
-                .on_click(cx.listener(|s, _, _, cx| {
-                    if let Some(p) = s.panels.forwards.as_mut() {
-                        p.save_to_host = !p.save_to_host;
-                    }
-                    cx.notify();
-                }))
-                .child(toggle(&t, panel.save_to_host, "fwd-save-toggle"))
+                .gap(px(12.))
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(t.muted)
-                        .child(tr("Save to host")),
+                        .id("forward-save-host")
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .cursor_pointer()
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            if let Some(p) = s.panels.forwards.as_mut() {
+                                p.save_to_host = !p.save_to_host;
+                            }
+                            cx.notify();
+                        }))
+                        .child(toggle(&t, panel.save_to_host, "fwd-save-toggle"))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(t.muted)
+                                .child(tr("Save to host")),
+                        ),
                 )
+                .when(panel.save_to_host, |el| {
+                    el.child(
+                        div()
+                            .id("forward-auto-new")
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                if let Some(p) = s.panels.forwards.as_mut() {
+                                    p.auto_start_new = !p.auto_start_new;
+                                }
+                                cx.notify();
+                            }))
+                            .child(toggle(&t, panel.auto_start_new, "fwd-auto-toggle"))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(t.muted)
+                                    .child(tr("Auto-start")),
+                            ),
+                    )
+                })
                 .into_any_element()
         } else {
             div()
