@@ -104,4 +104,4 @@ echo "cask:   $cask (copy to the tap's Casks/kite.rb)"
 echo
 echo "Not run. When ready, with $tag tagged and pushed:"
 echo
-echo "  gh release create $tag \"$dmg\" \"$zip\" --repo your-moon/tern --title \"kite $version\" --notes-file <(awk '/^## \\[$version\\]/{f=1;next} /^## \\[/{f=0} f' CHANGELOG.md)"
+echo "  gh release create $tag \"$dmg\" \"$zip\" --repo Kfkcome/kite --title \"Kite $version\" --notes-file <(awk '/^## \\[$version\\]/{f=1;next} /^## \\[/{f=0} f' CHANGELOG.md)"

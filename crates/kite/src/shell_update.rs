@@ -12,7 +12,7 @@ use super::{Shell, Toast, ToastKind};
 use crate::i18n::{fill, tr};
 use crate::settings;
 
-const LATEST_URL: &str = "https://api.github.com/repos/your-moon/tern/releases/latest";
+const LATEST_URL: &str = "https://api.github.com/repos/Kfkcome/kite/releases/latest";
 /// Only a page on GitHub is ever opened, whatever the response says.
 const PAGE_PREFIX: &str = "https://github.com/";
 const STAMP_FILE: &str = "update-check";
