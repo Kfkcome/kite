@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use gpui::{
     App, AppContext as _, Bounds, Context, Empty, Entity, InteractiveElement as _, IntoElement,
-    MouseButton, MouseUpEvent, Pixels, Point, Render, StatefulInteractiveElement as _, Styled as _,
-    Task, Window, div, px,
+    MouseButton, MouseUpEvent, Pixels, Render, StatefulInteractiveElement as _, Styled as _, Task,
+    Window, div, px,
 };
 
 use crate::terminal::Terminal;
@@ -165,19 +165,9 @@ pub(crate) struct ScrollbarMetrics {
     pub thumb_h: f32,
     pub thumb_x: f32,
     pub thumb_w: f32,
-    pub hit_left: f32,
-    pub hit_right: f32,
-    pub hit_top: f32,
-    pub hit_bottom: f32,
 }
 
 impl ScrollbarMetrics {
-    pub(crate) fn contains(self, pos: Point<Pixels>) -> bool {
-        let x = f32::from(pos.x);
-        let y = f32::from(pos.y);
-        x >= self.hit_left && x <= self.hit_right && y >= self.hit_top && y <= self.hit_bottom
-    }
-
     pub(crate) fn contains_thumb_y(self, y: f32) -> bool {
         y >= self.thumb_top && y <= self.thumb_top + self.thumb_h
     }
@@ -222,10 +212,6 @@ pub(crate) fn metrics(
         thumb_h,
         thumb_x: right - (thumb_w + 3.0),
         thumb_w,
-        hit_left: right - HIT_STRIP_W,
-        hit_right: right,
-        hit_top: f32::from(bounds.origin.y),
-        hit_bottom: f32::from(bounds.origin.y) + height,
     })
 }
 
