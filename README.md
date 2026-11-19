@@ -5,32 +5,74 @@
 <h1 align="center">Kite</h1>
 
 <p align="center">
-  基于 Rust 与 <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> 构建的原生 SSH 客户端。<br>
+  基于 Rust 与 <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> 构建的 macOS 原生 SSH 客户端。<br>
   Termius / Netcatty 的高性能、高颜值、低内存占用开源替代方案。
 </p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/Platform-macOS-lightgrey.svg" alt="Platform: macOS">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/kite-banner.png" width="900" alt="Kite — Lighter. Faster. Better to connect.">
+</p>
+
+<details>
+<summary>更多界面预览（深色 / 浅色主题 / 多窗格分屏 / 端口转发）</summary>
+
+<p align="center">
+  <img src="docs/screenshots/kite-dark-wave.png" width="900" alt="Kite 深色主题与名画壁纸莫奈取色效果">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/kite-light-snow.png" width="900" alt="Kite 浅色主题与名画壁纸效果">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/kite-split.png" width="900" alt="Kite 多窗格分屏布局">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/kite-forwards.png" width="900" alt="Kite 端口转发配置面板（支持本地/远程/SOCKS 与自动启动）">
+</p>
+
+</details>
 
 ---
 
 ## 为什么选择 Kite
 
-市面上主流的 SSH 客户端（如 Termius、Netcatty、Tabby）大多基于 Electron / Web 技术栈，打开几个终端标签往往就要占用数百 MB 内存。
+市面上主流的 SSH 客户端（如 Termius、Netcatty、Tabby）大多基于 Electron，开几个标签页内存动辄五六百 MB。
 
-**Kite** 使用纯 **Rust** 编写，底层采用 **GPUI** GPU 加速渲染、**russh** 原生异步 SSH 协议栈与 **alacritty_terminal** 终端仿真内核：
+**Kite** 用纯 **Rust** 编写，底层采用 **GPUI** GPU 渲染、**russh** 异步 SSH 和 **alacritty_terminal** 终端内核，轻快、省内存、颜值在线：
 
-- **极低内存占用与极致性能**：单原生进程运行，内存占用仅为 Electron 客户端的零头（单连接会话约 ~70 MB），滚动、分屏与高吞吐输出丝滑流畅。
-- **高颜值原生界面**：内置多款名画壁纸与自适应莫奈取色系统，支持明暗主题自动跟随系统、自定义等宽字体、亚克力/半透明背景效果。
-- **开箱即用的效率工具**：
+### 实测内存对比（macOS 活动监视器同口径）
+
+| 客户端 | 状态 | 内存占用 |
+| :--- | :--- | :--- |
+| **Kite（无壁纸）** | 连着 1 个 SSH 会话 | **~76 MB** |
+| **Kite（开壁纸）** | 连着 1 个 SSH 会话 | **~125 MB** |
+| **Tabby** | 空载 / 连着 1 个会话 | ~471 MB / ~580 MB |
+| **Termius** | 空载 | ~583 MB |
+| **Netcatty** | 运行中（5 进程合计） | ~1,005 MB |
+
+### 主要特点
+
+- **轻快不卡顿**：GPU 加速渲染，支持触控板和鼠标滚轮平滑滚动；服务器狂刷大日志时也不会把内存吃爆。
+- **高颜值原生界面**：内置多款名画壁纸，能自动提取壁纸色调适配界面；支持明暗主题自动跟随系统、自定义字体和半透明背景。
+- **日常功能齐全（基本完整覆盖 Netcatty）**：
   - `⌘K` 快速连接、分组与标签管理、`~/.ssh/config` 一键导入
-  - 支持 **SOCKS5 / HTTP CONNECT / ProxyCommand / ProxyJump** 代理连接
-  - 支持自由拖拽分屏（`⌘D` / `⌘⇧D`）、标签页拆窗与滚动条自动隐藏/拖拽
-  - 内置 **SFTP** 侧边栏文件浏览、下载与拖拽上传
+  - 支持 **SOCKS5 / HTTP 代理 / ProxyCommand / 跳板机（ProxyJump）**
+  - 自由拖拽分屏（`⌘D` / `⌘⇧D`）、标签页拆窗、滚动条自动隐藏与拖拽
+  - 内置 **SFTP** 侧边栏，支持浏览目录、下载和拖拽上传
   - **Snippets** 快捷命令片段（`⇧⌘S`）、端口转发（Local / Remote / SOCKS）
-  - **age 加密保险箱**：PIN / Keychain 解锁、外部密码管理器联动、`⌘\` 一键填充 `sudo` 密码
-  - 支持加密同步至个人私有 Git 仓库，无需账号与订阅
+  - **本地加密保险箱（age）**：支持 PIN / 系统钥匙串解锁、外部密码管理器联动、`⌘\` 一键填 `sudo` 密码
+  - 支持加密同步到你自己的私有 Git 仓库，不用注册账号、不用开会员
 
 ## 构建与运行
 
-需要 Rust 工具链（见 [docs/building.md](docs/building.md)）：
+目前支持 **macOS**，需要安装 Rust 工具链（见 [docs/building.md](docs/building.md)）：
 
 ```sh
 # 运行开发版
@@ -43,7 +85,7 @@ cargo run -p kite
 ## 致谢
 
 - 本项目基于开源项目 **tern** 持续演进与二次开发
-- 感谢 **linux.do** 社区及所有反馈与支持的朋友
+- 感谢 **[LINUX DO](https://linux.do)** 社区及所有反馈与支持的朋友
 
 ## 开源协议
 
