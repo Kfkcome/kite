@@ -94,6 +94,8 @@ pub(crate) use themes_ui::ThemeTarget;
 
 #[path = "shell_connections.rs"]
 pub(crate) mod connections_ui;
+#[path = "shell_forwards_view.rs"]
+mod forwards_view;
 #[path = "shell_hostlist.rs"]
 mod hostlist;
 #[path = "shell_import.rs"]
