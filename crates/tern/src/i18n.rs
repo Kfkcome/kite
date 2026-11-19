@@ -444,6 +444,7 @@ const ZH: &[(&str, &str)] = &[
     ("Quit, hide, minimise", "退出、隐藏、最小化"),
     ("Recent", "最近"),
     ("Reconnect", "重新连接"),
+    ("Reconnect current session", "重新连接当前会话"),
     ("Reduce motion", "减弱动态效果"),
     ("Remove", "移除"),
     ("Removed {}", "已移除 {}"),

@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use gpui::{Div, Hsla, IntoElement, ParentElement, Styled, div, px};
+use gpui::{Div, Hsla, ParentElement, Styled, div, px};
 
 use crate::indicator::Dot;
 use crate::theme::Theme;
@@ -68,7 +68,7 @@ pub fn render(
     latency: Option<Duration>,
     elapsed: Option<Duration>,
     bg: Hsla,
-) -> impl IntoElement + use<> {
+) -> Div {
     let disc = div().size(px(6.)).rounded_full();
     let marker = if dot.hollow() {
         disc.border_1().border_color(dot.color(t))

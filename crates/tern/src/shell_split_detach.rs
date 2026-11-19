@@ -50,8 +50,9 @@ impl Shell {
         alias: &str,
         label: &str,
         focused: bool,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
+        use crate::hover::Accessible as _;
         let t = self.theme;
         let term = self.terminal_theme(alias);
         let dragged = DraggedPane {
@@ -68,6 +69,7 @@ impl Shell {
             .flex_none()
             .flex()
             .items_center()
+            .gap(px(6.))
             .min_w_0()
             .bg(term.background.opacity(term.background_alpha))
             .text_size(px(12.))
@@ -80,6 +82,37 @@ impl Shell {
                     .min_w_0()
                     .truncate()
                     .child(SharedString::from(label.to_owned())),
+            )
+            .child(
+                div()
+                    .id(("pane-reconnect", pane))
+                    .size(px(18.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .icon_button(crate::i18n::tr("Reconnect current session"), &t)
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        let Some(session) = shell
+                            .tabs
+                            .iter()
+                            .find(|t| t.id == tab)
+                            .and_then(|t| t.panes.iter().find(|p| p.id == pane))
+                            .map(|p| p.session.clone())
+                        else {
+                            return;
+                        };
+                        session.update(cx, |s, cx| s.reconnect(cx));
+                        shell.focus_pane(pane, window, cx);
+                    }))
+                    .child(
+                        crate::icons::icon(crate::icons::RESTART)
+                            .size(px(12.))
+                            .text_color(t.muted),
+                    ),
             )
             .into_any_element()
     }

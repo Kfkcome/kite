@@ -339,13 +339,8 @@ impl Session {
         // The last program's modes live in this terminal. The new shell never
         // turns mouse tracking off, so a move would be typed in as a report.
         self.release_remote_modes(cx);
-        // A restored tab shows only its "Press Enter to connect" hint; clear it rather than leave
-        // it above the login banner.
-        if self.status == Status::Idle {
-            self.show(b"\x1b[2J\x1b[3J\x1b[H", cx);
-        } else {
-            self.show(b"\r\n", cx);
-        }
+        // Clear previous screen and scrollback so old and new session output do not mix.
+        self.show(b"\x1b[2J\x1b[3J\x1b[H", cx);
         if self.auto_log && self.log.is_none() {
             self.start_auto_log();
         }
@@ -421,6 +416,7 @@ impl Session {
             } => {
                 self.status = Status::Closed;
                 self.forget_forwards();
+                self.release_remote_modes(cx);
                 self.ended_at = Some(std::time::Instant::now());
                 self.login = None;
                 self.flow = None;

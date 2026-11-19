@@ -15,10 +15,11 @@
 //! The sharp picture is only the empty view's hero, laid out inside the main tile. Sidebar width
 //! is held in whole device pixels so no edge lands between two.
 
+use crate::hover::Accessible as _;
 use crate::indicator::Dot;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, Hsla, IntoElement, ParentElement, Styled, Window,
+    AnyElement, Context, Hsla, IntoElement, ParentElement, Styled, Window,
     WindowBackgroundAppearance, div, px,
 };
 
@@ -149,20 +150,42 @@ impl Shell {
     pub(super) fn render_status_line(
         &self,
         bg: gpui::Hsla,
-        cx: &App,
+        cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         if !self.settings.show_status_line {
             return None;
         }
-        let session = self.tabs.get(self.active)?.session().read(cx);
-        Some(statusline::render(
-            &self.theme,
-            &session.label(),
-            Dot::of(&session.status, session.is_asking()),
-            session.latency(),
-            session.elapsed(),
-            bg,
-        ))
+        let t = &self.theme;
+        let session = self.tabs.get(self.active)?.session().clone();
+        let (label, dot, latency, elapsed) = {
+            let s = session.read(cx);
+            (
+                s.label(),
+                Dot::of(&s.status, s.is_asking()),
+                s.latency(),
+                s.elapsed(),
+            )
+        };
+        let reconnect_btn = div()
+            .id("statusline-reconnect")
+            .size(px(18.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .cursor_pointer()
+            .icon_button(crate::i18n::tr("Reconnect current session"), t)
+            .on_click(cx.listener(move |shell, _, window, cx| {
+                session.update(cx, |s, cx| s.reconnect(cx));
+                shell.restore_focus(window, cx);
+            }))
+            .child(
+                crate::icons::icon(crate::icons::RESTART)
+                    .size(px(12.))
+                    .text_color(t.muted),
+            );
+        Some(statusline::render(t, &label, dot, latency, elapsed, bg).child(reconnect_btn))
     }
 
     /// Repaints once a second while the active tab is connected, so its session time counts.
