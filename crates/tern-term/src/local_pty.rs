@@ -38,6 +38,7 @@ impl LocalPty {
     /// Spawns the user's default login shell at `cols` x `rows`.
     pub fn spawn(cols: u16, rows: u16) -> io::Result<Self> {
         let mut opts = Options::default();
+        opts.working_directory = std::env::home_dir();
         opts.env.insert("TERM".into(), "xterm-256color".into());
         opts.env.insert("COLORTERM".into(), "truecolor".into());
         let size = WindowSize {

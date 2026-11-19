@@ -339,7 +339,11 @@ impl Session {
 
     /// What opens another session just like this one: the same server.
     pub fn launch_again(&self) -> Launch {
-        Launch::Ssh(self.link.spec.clone())
+        if self.link.is_local {
+            Launch::Local
+        } else {
+            Launch::Ssh(self.link.spec.clone())
+        }
     }
 
     /// The live connection, for features that open their own channel on it (SFTP).

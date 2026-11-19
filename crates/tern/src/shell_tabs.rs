@@ -278,6 +278,10 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Pane> {
+        if is_local_alias(alias) {
+            let label = crate::i18n::tr("Local Terminal");
+            return Some(self.make_pane(Launch::Local, label, window, cx));
+        }
         let spec = match self.hosts.iter().find(|host| host.alias == alias) {
             Some(host) => ConnectSpec::from_host_entry(host),
             None => ConnectSpec::parse(alias),
@@ -293,8 +297,14 @@ impl Shell {
 
     /// In the host list, or a target `ConnectSpec::parse` accepts. Anything else is dropped.
     fn alias_keepable(&self, alias: &str) -> bool {
-        self.hosts.iter().any(|host| host.alias == alias) || ConnectSpec::parse(alias).is_ok()
+        is_local_alias(alias)
+            || self.hosts.iter().any(|host| host.alias == alias)
+            || ConnectSpec::parse(alias).is_ok()
     }
+}
+
+fn is_local_alias(alias: &str) -> bool {
+    alias == "Local Terminal" || alias == "本地终端"
 }
 
 fn saved_tab(tab: &Tab) -> SavedTab {
