@@ -143,10 +143,10 @@ pub fn render_titlebar(
         .child(tabs)
         .child(
             div()
-                // Keeps a grab area once the pills fill the bar. The mouse-down
-                // handler lives on the bar, so this strip is not a second drag.
-                .flex_1()
-                .min_w(px(48.))
+                // Keeps a 48 px grab area at the right end without splitting the bar 50/50
+                // with `tab-strip` (which also uses `flex_1`).
+                .flex_none()
+                .w(px(48.))
                 .h_full()
                 .window_control_area(WindowControlArea::Drag),
         )

@@ -186,9 +186,8 @@ fn tab_pill(
         .group("tab")
         .relative()
         .h(px(26.))
-        .flex_shrink(1.)
-        .min_w(px(72.))
-        .max_w(px(200.))
+        .flex_shrink_0()
+        .max_w(px(240.))
         .pl(px(10.))
         .pr(px(4.))
         .flex()
@@ -213,7 +212,7 @@ fn tab_pill(
                 return;
             }
             if e.click_count() >= 2 {
-                shell.start_rename(ix, window, cx);
+                shell.duplicate_tab(ix, window, cx);
             } else {
                 shell.show_tab(ix, window, cx);
             }
@@ -246,8 +245,8 @@ fn tab_pill(
         .child(status_dot(("tab-dot", ix), tab.dot, t))
         .child(match renaming {
             Some(input) => div()
-                .flex_1()
-                .min_w_0()
+                .w(px(120.))
+                .min_w(px(80.))
                 .child(input)
                 .on_mouse_down_out(cx.listener(|shell, _, window, cx| {
                     shell.commit_rename(window, cx);

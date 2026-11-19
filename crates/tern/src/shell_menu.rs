@@ -128,14 +128,10 @@ impl Shell {
                 s.show_tab(ix, w, cx);
             }));
         }
-        let again = alias.clone();
         items.push(action(
             icons::PLUS,
             tr("New tab to this host"),
-            move |s, w, cx| match s.hosts.iter().find(|h| h.alias == again).cloned() {
-                Some(host) => s.open_new_tab(&host, w, cx),
-                None => s.connect_target(&again, w, cx),
-            },
+            move |s, w, cx| s.duplicate_tab(ix, w, cx),
         ));
         items.push(action(icons::PEN, tr("Rename…"), move |s, w, cx| {
             s.start_rename(ix, w, cx)
@@ -214,6 +210,24 @@ impl Shell {
         }));
         self.context_menu = Some(ContextMenu { position, items });
         cx.notify();
+    }
+
+    /// Opens a new tab to the same host (or local terminal) as tab `ix`.
+    pub(crate) fn duplicate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(ix) else {
+            return;
+        };
+        if matches!(
+            tab.session().read(cx).launch_again(),
+            crate::session::Launch::Local
+        ) {
+            return self.open_local_terminal(window, cx);
+        }
+        let alias = tab.focused_alias().to_owned();
+        match self.hosts.iter().find(|h| h.alias == alias).cloned() {
+            Some(host) => self.open_new_tab(&host, window, cx),
+            None => self.connect_target(&alias, window, cx),
+        }
     }
 
     /// A second session to the same host, even when one is already open.

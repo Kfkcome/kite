@@ -45,6 +45,9 @@ impl Shell {
 
     /// `tern <target>`: a `~/.ssh/config` alias or `user@host:port`.
     pub fn connect_target(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if target == "Local Terminal" || target == "本地终端" {
+            return self.open_local_terminal(window, cx);
+        }
         // A saved connection's name wins, so `tern web-01` and the picker's typed name open the
         // same host (with its password command, jump host and group) as clicking it does.
         if let Some(host) = self.hosts.iter().find(|h| h.alias == target).cloned() {
