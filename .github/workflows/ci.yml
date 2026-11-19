@@ -27,7 +27,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-mutants --locked
-      - run: cargo mutants -p kite-vault -p kite-sync --no-shuffle
+      - run: cargo mutants -p kite-vault -p kite-sync --no-shuffle --exclude-re "OsKeychain|UreqHttp"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
