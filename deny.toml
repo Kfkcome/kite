@@ -14,6 +14,10 @@ ignore = [
   # operations; tern does at most one RSA signature per login, and host-key checks are public-key
   # only. Dropping russh's `rsa` feature would remove RSA host and user keys. Tracked in #16.
   { id = "RUSTSEC-2023-0071", reason = "no fix upstream; one signature per login; see #16" },
+  # Agent server confirm-constraint bug in russh 0.64.x; kite is a client only and does not run russh::keys::agent::server.
+  { id = "RUSTSEC-2026-0495", reason = "kite is an SSH client only and never runs russh's agent server" },
+  # chrono is used only for local-time date formatting in the SFTP file browser.
+  { id = "RUSTSEC-2026-0543", reason = "used only for local-time formatting in SFTP file browser" },
 ]
 
 [licenses]
