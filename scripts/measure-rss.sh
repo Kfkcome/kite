@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measure resident memory of a running tern process over a short window.
+# Measure resident memory of a running kite process over a short window.
 # Usage: scripts/measure-rss.sh <pid> [seconds]   → prints peak and final RSS in MB.
 set -euo pipefail
 pid=$1; secs=${2:-10}; peak=0; rss=0

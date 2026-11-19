@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Builds, bundles, zips and packs tern into a drag-to-Applications dmg for a GitHub release,
+# Builds, bundles, zips and packs kite into a drag-to-Applications dmg for a GitHub release,
 # fills the Homebrew cask and prints the `gh release create` command. It publishes nothing: no
 # tag, no release, no push.
 #
 #   scripts/release.sh
 #
-# TERN_SIGN_ID (a "Developer ID Application: ..." identity): the app is signed with the hardened
-# runtime by bundle-app.sh and the dmg is signed too. With TERN_NOTARY_PROFILE as well (an
+# KITE_SIGN_ID (a "Developer ID Application: ..." identity): the app is signed with the hardened
+# runtime by bundle-app.sh and the dmg is signed too. With KITE_NOTARY_PROFILE as well (an
 # `xcrun notarytool store-credentials` profile): the app is notarised and stapled (bundle-app.sh),
 # the dmg is built from the stapled app, notarised and stapled, and both are checked with spctl.
 # Without them those steps are skipped, with a message.
@@ -23,9 +23,9 @@ tag="v$version"
 scripts/bundle-app.sh
 
 out=target/release/bundle
-app="$out/tern.app"
-zip="$out/tern-$version-macos-arm64.zip"
-dmg="$out/tern-$version-macos-arm64.dmg"
+app="$out/kite.app"
+zip="$out/kite-$version-macos-arm64.zip"
+dmg="$out/kite-$version-macos-arm64.dmg"
 rm -f "$zip" "$dmg"
 # ditto keeps the bundle's signature and resource forks intact, which plain zip does not. The zip
 # is made from the stapled app, so the Homebrew cask installs a bundle with its ticket.
@@ -51,12 +51,12 @@ import dmgbuild
 app = os.environ["APP"]
 dmgbuild.build_dmg(
     filename=os.environ["DMG"],
-    volume_name="tern",
+    volume_name="kite",
     settings={
         "format": "UDZO",
         "files": [app],
         "symlinks": {"Applications": "/Applications"},
-        "icon": os.path.join(app, "Contents/Resources/tern.icns"),
+        "icon": os.path.join(app, "Contents/Resources/kite.icns"),
         "background": os.environ["BG"],
         "show_status_bar": False,
         "show_tab_view": False,
@@ -68,19 +68,19 @@ dmgbuild.build_dmg(
         "window_rect": ((200, 120), (660, 400)),
         "icon_size": 104,
         "text_size": 12,
-        "icon_locations": {"tern.app": (165, 170), "Applications": (495, 170)},
+        "icon_locations": {"kite.app": (165, 170), "Applications": (495, 170)},
     },
 )
 PY
 rm -f "$bg"
 
 notarise=false
-if [ -n "${TERN_SIGN_ID:-}" ]; then
-  codesign -s "$TERN_SIGN_ID" --timestamp "$dmg"
-  echo "signed dmg with: $TERN_SIGN_ID"
-  [ -z "${TERN_NOTARY_PROFILE:-}${TERN_NOTARY_KEY:-}" ] || notarise=true
+if [ -n "${KITE_SIGN_ID:-}" ]; then
+  codesign -s "$KITE_SIGN_ID" --timestamp "$dmg"
+  echo "signed dmg with: $KITE_SIGN_ID"
+  [ -z "${KITE_NOTARY_PROFILE:-}${KITE_NOTARY_KEY:-}" ] || notarise=true
 else
-  echo "dmg not signed (needs TERN_SIGN_ID; skipping that)"
+  echo "dmg not signed (needs KITE_SIGN_ID; skipping that)"
 fi
 
 if $notarise; then
@@ -90,18 +90,18 @@ if $notarise; then
   spctl -a -vv "$app"
   echo "dmg notarised and stapled"
 else
-  echo "dmg not notarised (needs TERN_SIGN_ID and TERN_NOTARY_PROFILE or TERN_NOTARY_KEY; skipping that)"
+  echo "dmg not notarised (needs KITE_SIGN_ID and KITE_NOTARY_PROFILE or KITE_NOTARY_KEY; skipping that)"
 fi
 
-cask="$out/tern.rb"
-sed -e "s/@VERSION@/$version/" -e "s/@SHA256@/$sha/" packaging/homebrew/tern.rb > "$cask"
+cask="$out/kite.rb"
+sed -e "s/@VERSION@/$version/" -e "s/@SHA256@/$sha/" packaging/homebrew/kite.rb > "$cask"
 
 echo
 echo "dmg:    $dmg"
 echo "zip:    $zip"
 echo "sha256: $sha (zip, for the cask)"
-echo "cask:   $cask (copy to the tap's Casks/tern.rb)"
+echo "cask:   $cask (copy to the tap's Casks/kite.rb)"
 echo
 echo "Not run. When ready, with $tag tagged and pushed:"
 echo
-echo "  gh release create $tag \"$dmg\" \"$zip\" --repo your-moon/tern --title \"tern $version\" --notes-file <(awk '/^## \\[$version\\]/{f=1;next} /^## \\[/{f=0} f' CHANGELOG.md)"
+echo "  gh release create $tag \"$dmg\" \"$zip\" --repo your-moon/tern --title \"kite $version\" --notes-file <(awk '/^## \\[$version\\]/{f=1;next} /^## \\[/{f=0} f' CHANGELOG.md)"

@@ -16,7 +16,7 @@ import os
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONT = os.path.join(ROOT, "crates/tern/assets/fonts/Geist-Medium.ttf")
+FONT = os.path.join(ROOT, "crates/kite/assets/fonts/Geist-Medium.ttf")
 OUT = os.path.join(ROOT, "packaging/macos")
 
 # Window and icon geometry in points; must match the dmgbuild settings in scripts/release.sh.
@@ -93,7 +93,7 @@ def render(s, path):
         d.ellipse([x * ss - r0, y * ss - r0, x * ss + r0, y * ss + r0], fill=white)
 
     font = ImageFont.truetype(FONT, round(13 * ss))
-    text = "Drag tern to Applications"
+    text = "Drag kite to Applications"
     tw = d.textlength(text, font=font)
     d.text(((w - tw) / 2, 44 * ss), text, font=font, fill=(255, 255, 255, 200))
 

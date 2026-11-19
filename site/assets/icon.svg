@@ -1,9 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- tern app icon master: a flying bird, flat white on near-black, on the macOS 824 px squircle.
-       Bird glyph: "bird" from Material Design Icons (Pictogrammers), Apache-2.0,
-       https://pictogrammers.com/library/mdi/icon/bird/
-       Rendered to tern.icns by scripts/make-icon.sh. -->
+  <!-- Kite app icon master: crisp flat-white diamond kite on near-black #11131c squircle.
+       Rendered to kite.icns by scripts/make-icon.sh. -->
   <rect x="100" y="100" width="824" height="824" rx="185" fill="#11131c"/>
   <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="2"/>
-  <path transform="translate(199.5 219.5) scale(25)" fill="#ffffff" fill-rule="evenodd" d="M23 11.5L19.95 10.37C19.69 9.22 19.04 8.56 19.04 8.56C17.4 6.92 14.75 6.92 13.11 8.56L11.63 10.04L5 3C4 7 5 11 7.45 14.22L2 19.5C2 19.5 10.89 21.5 16.07 17.45C18.83 15.29 19.45 14.03 19.84 12.7L23 11.5M17.71 11.72C17.32 12.11 16.68 12.11 16.29 11.72C15.9 11.33 15.9 10.7 16.29 10.31C16.68 9.92 17.32 9.92 17.71 10.31C18.1 10.7 18.1 11.33 17.71 11.72Z"/>
+  <!-- Diamond kite body (upper-right apex, clean rounded corners) -->
+  <path d="M 718 232 L 348 360 Q 332 366 341 381 L 462 544 L 622 670 Q 637 679 643 663 L 732 246 Q 735 227 718 232 Z" fill="#ffffff"/>
+  <!-- Negative-space kite spars (spine + gentle curved cross-spar) -->
+  <line x1="726" y1="238" x2="462" y2="544" stroke="#11131c" stroke-width="18" stroke-linecap="round"/>
+  <path d="M 342 368 Q 505 462 636 664" fill="none" stroke="#11131c" stroke-width="18" stroke-linecap="round"/>
+  <!-- Flowing kite tail -->
+  <path d="M 462 544 C 415 612, 338 606, 326 678 C 314 748, 376 766, 266 798" fill="none" stroke="#ffffff" stroke-width="26" stroke-linecap="round"/>
 </svg>

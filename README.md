@@ -1,71 +1,52 @@
 <p align="center">
-  <img src="packaging/macos/icon.svg" width="128" alt="tern icon: a white bird in flight on near-black">
+  <img src="packaging/macos/icon.svg" width="128" alt="Kite icon: a crisp white diamond kite on near-black">
 </p>
 
-<h1 align="center">tern</h1>
-
-<p align="center">
-  A native SSH client for macOS, written in Rust on <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a>.<br>
-  Saved hosts, SFTP, splits and snippets, with passwords from your own password manager.
-<br>
-  <a href="https://tern.carrot-soft.tech">Website: https://tern.carrot-soft.tech</a>
-</p>
+<h1 align="center">Kite</h1>
 
 <p align="center">
-  <img src="docs/screenshots/demo.gif" alt="⌘K finds web-01, tern connects, runs docker ps, then ⌘\ fills the sudo password" width="900">
+  基于 Rust 与 <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> 构建的原生 SSH 客户端。<br>
+  Termius / Netcatty 的高性能、高颜值、低内存占用开源替代方案。
 </p>
+
+---
+
+## 为什么选择 Kite
+
+市面上主流的 SSH 客户端（如 Termius、Netcatty、Tabby）大多基于 Electron / Web 技术栈，打开几个终端标签往往就要占用数百 MB 内存。
+
+**Kite** 使用纯 **Rust** 编写，底层采用 **GPUI** GPU 加速渲染、**russh** 原生异步 SSH 协议栈与 **alacritty_terminal** 终端仿真内核：
+
+- **极低内存占用与极致性能**：单原生进程运行，内存占用仅为 Electron 客户端的零头（单连接会话约 ~70 MB），滚动、分屏与高吞吐输出丝滑流畅。
+- **高颜值原生界面**：内置多款名画壁纸与自适应莫奈取色系统，支持明暗主题自动跟随系统、自定义等宽字体、亚克力/半透明背景效果。
+- **开箱即用的效率工具**：
+  - `⌘K` 快速连接、分组与标签管理、`~/.ssh/config` 一键导入
+  - 支持 **SOCKS5 / HTTP CONNECT / ProxyCommand / ProxyJump** 代理连接
+  - 支持自由拖拽分屏（`⌘D` / `⌘⇧D`）、标签页拆窗与滚动条自动隐藏/拖拽
+  - 内置 **SFTP** 侧边栏文件浏览、下载与拖拽上传
+  - **Snippets** 快捷命令片段（`⇧⌘S`）、端口转发（Local / Remote / SOCKS）
+  - **age 加密保险箱**：PIN / Keychain 解锁、外部密码管理器联动、`⌘\` 一键填充 `sudo` 密码
+  - 支持加密同步至个人私有 Git 仓库，无需账号与订阅
+
+## 构建与运行
+
+需要 Rust 工具链（见 [docs/building.md](docs/building.md)）：
 
 ```sh
-brew install --cask your-moon/tern/tern
+# 运行开发版
+cargo run -p kite
+
+# 构建 macOS .app 应用包（输出至 target/release/bundle/Kite.app）
+./scripts/bundle-app.sh
 ```
 
-Or download the DMG from [Releases](https://github.com/your-moon/tern/releases). It is signed and notarised, so it opens without a warning.
+## 致谢
 
-## Why tern
+- 本项目基于开源项目 **tern** 持续演进与二次开发
+- 感谢 **linux.do** 社区及所有反馈与支持的朋友
 
-tern does what Termius and Tabby do for a list of servers (saved hosts, ⌘K to any of them, SFTP, splits, snippets and port forwards), but as one small native process. One connected tab takes 76 MB where Tabby takes 580 MB ([how I measured it](docs/perf.md)).
+## 开源协议
 
-Passwords come from your SSH key, from a password-manager command such as `gopass show -o work/ssh/web-01`, or from tern's age-encrypted vault. At a `sudo` prompt, ⌘\\ types the password. It never types one on its own.
+本项目采用 **[GNU General Public License v3.0 or later (GPL-3.0-or-later)](LICENSE)** 开源协议。
 
-Hosts, snippets and settings sync to a private Git repository you own, encrypted on your Mac first. No account, no subscription.
-
-## A closer look
-
-| | |
-| --- | --- |
-| <img src="docs/screenshots/docker.jpg" alt="sudo docker ps with the sudo password filled by ⌘\"><br>**⌘\\ fills `sudo`**: the password comes from your password manager, typed only when you ask and only at a password prompt. | <img src="docs/screenshots/snippets.jpg" alt="The snippets picker filtering docker commands"><br>**Snippets (⇧⌘S)**: saved commands. ↵ marks the ones that run when picked; the rest are typed for you to finish. |
-| <img src="docs/screenshots/split.jpg" alt="Two panes side by side with find in scrollback"><br>**Splits and find**: ⌘D and ⌘⇧D split a tab; ⌘F searches the scrollback. | <img src="docs/screenshots/sftp.jpg" alt="The SFTP side panel listing a remote home folder"><br>**Files (⇧⌘O)**: browse the remote side over SFTP; download, or drop files to upload. |
-| <img src="docs/screenshots/settings.jpg" alt="Settings, Appearance, with the wallpaper gallery"><br>**Wallpapers and fonts**: seven public-domain artworks built in, or any image; light, dark or follow macOS; any monospace font. | <img src="docs/screenshots/light.jpg" alt="tern in light appearance over Van Gogh's Wheat Field"><br>**Light and dark**: the window takes its colours from the wallpaper, and body text stays at least 4.5:1 against it. |
-
-## Also in the box
-
-- **Connections:** groups and tags, a one-time import from `~/.ssh/config`, ProxyJump chains, local, remote and SOCKS forwards, agent forwarding, and two-factor logins.
-- **Staying connected:** automatic reconnect after a network drop, but never after you type `exit`. A changed host key stops the connection and shows the exact `ssh-keygen -R` line to fix one you trust.
-- **Terminal:** tabs that reopen on launch, broadcast input to chosen tabs, ⌘-click links (including OSC 8), session logging, and a status line with latency.
-- **Vault:** passwords and SSH keys in an age-encrypted file that unlocks with a PIN or the Keychain and locks when you're idle. A password command that arrives through sync must be approved once on each Mac.
-- **Sync:** runs on its own, merges per host when both Macs changed, and only asks about a real conflict.
-
-Every shortcut can be rebound in Settings. The full list, with the Windows and Linux keys, is in [docs/keyboard.md](docs/keyboard.md).
-
-## Security
-
-- Host keys are checked against `~/.ssh/known_hosts`. A changed key refuses the connection.
-- Secrets live in the vault (age, scrypt) or in your password manager. They are never written to logs, and never typed into the terminal unless you press ⌘\\.
-- Sync data is encrypted before it leaves your Mac. The repository sees `.age` files and a plain `tern-meta.json` (hash and time, nothing else).
-- Losing a Mac doesn't lose your setup: see [docs/recovery.md](docs/recovery.md). Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
-
-## Other platforms and building
-
-Windows and Linux builds are on the [Releases](https://github.com/your-moon/tern/releases) page as a preview: they pass CI but haven't been run on a real desktop yet, so reports are welcome. To build tern yourself on any platform, see [docs/building.md](docs/building.md). To contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Feedback
-
-tern is young (0.1.3), and I use it every day. If it's missing the one thing that keeps you on Termius, or something breaks, [open an issue](https://github.com/your-moon/tern/issues). I read all of them. Small fixes are very welcome too: the issues labelled [`good first issue`](https://github.com/your-moon/tern/labels/good%20first%20issue) are a good place to start.
-
-## Credits
-
-tern copies and adapts code from well-maintained projects rather than reinventing it, and each copied file names its origin ([NOTICE.md](NOTICE.md)): [zeron](https://github.com/zeronsh/zeron)'s UI (MIT), [russh](https://github.com/Eugeny/russh) (Apache-2.0), [alacritty_terminal](https://github.com/alacritty/alacritty) (Apache-2.0) and Zed's GPUI. Icons are Solar by 480 Design (CC BY 4.0), fonts are Geist (OFL), terminal themes come from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), and the wallpapers are from [The Met Open Access](https://www.metmuseum.org/about-the-met/policies-and-documents/open-access) (CC0).
-
-## License
-
-[GPL-3.0](LICENSE).
+第三方依赖与衍生代码声明见 [NOTICE.md](NOTICE.md)。

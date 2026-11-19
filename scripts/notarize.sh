@@ -3,16 +3,16 @@
 # Submits a zip/dmg to Apple's notary service and waits for the verdict. Zeron relies on the
 # following `stapler staple` to fail when a rejection exits 0; this checks the verdict itself.
 #
-#   TERN_NOTARY_PROFILE=<keychain profile> scripts/notarize.sh <path>
-#   TERN_NOTARY_KEY=<AuthKey_ID.p8> TERN_NOTARY_KEY_ID=<id> TERN_NOTARY_ISSUER=<uuid> scripts/notarize.sh <path>
+#   KITE_NOTARY_PROFILE=<keychain profile> scripts/notarize.sh <path>
+#   KITE_NOTARY_KEY=<AuthKey_ID.p8> KITE_NOTARY_KEY_ID=<id> KITE_NOTARY_ISSUER=<uuid> scripts/notarize.sh <path>
 # The second form uses an App Store Connect API key file directly, with no Keychain item.
 set -euo pipefail
-if [ -n "${TERN_NOTARY_KEY:-}" ]; then
-  auth=(--key "$TERN_NOTARY_KEY" --key-id "${TERN_NOTARY_KEY_ID:?set TERN_NOTARY_KEY_ID}" \
-    --issuer "${TERN_NOTARY_ISSUER:?set TERN_NOTARY_ISSUER}")
+if [ -n "${KITE_NOTARY_KEY:-}" ]; then
+  auth=(--key "$KITE_NOTARY_KEY" --key-id "${KITE_NOTARY_KEY_ID:?set KITE_NOTARY_KEY_ID}" \
+    --issuer "${KITE_NOTARY_ISSUER:?set KITE_NOTARY_ISSUER}")
 else
-  : "${TERN_NOTARY_PROFILE:?set TERN_NOTARY_PROFILE (xcrun notarytool store-credentials) or TERN_NOTARY_KEY}"
-  auth=(--keychain-profile "$TERN_NOTARY_PROFILE")
+  : "${KITE_NOTARY_PROFILE:?set KITE_NOTARY_PROFILE (xcrun notarytool store-credentials) or KITE_NOTARY_KEY}"
+  auth=(--keychain-profile "$KITE_NOTARY_PROFILE")
 fi
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
