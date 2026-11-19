@@ -182,7 +182,7 @@ impl Shell {
         }
         let typed = ui.unlock.read(cx).text().to_owned();
         if typed.is_empty() {
-            return self.vault_message(false, "Enter the vault passphrase.", cx);
+            return self.vault_message(false, tr("Enter the vault passphrase."), cx);
         }
         ui.busy = true;
         ui.message = None;
@@ -222,7 +222,7 @@ impl Shell {
         };
         let pin = ui.pin.read(cx).text().to_owned();
         if pin.is_empty() {
-            return self.vault_message(false, "Enter the vault PIN.", cx);
+            return self.vault_message(false, tr("Enter the vault PIN."), cx);
         }
         ui.busy = true;
         ui.message = None;
@@ -274,10 +274,14 @@ impl Shell {
         let new = ui.new.read(cx).text().to_owned();
         let confirm = ui.confirm.read(cx).text().to_owned();
         if new.is_empty() {
-            return self.vault_message(false, "Enter a passphrase for the new vault.", cx);
+            return self.vault_message(false, tr("Enter a passphrase for the new vault."), cx);
         }
         if new != confirm {
-            return self.vault_message(false, "The passphrase and its confirmation differ.", cx);
+            return self.vault_message(
+                false,
+                tr("The passphrase and its confirmation differ."),
+                cx,
+            );
         }
         ui.busy = true;
         ui.message = None;
@@ -453,7 +457,7 @@ impl Shell {
         if Keeper::edit(cx, |v| v.set(key, value)).is_none() {
             return self.notify_toast(
                 ToastKind::Critical,
-                "The vault is locked: unlock it, then save the entry again",
+                tr("The vault is locked: unlock it, then save the entry again"),
                 cx,
             );
         }

@@ -16,6 +16,7 @@ mod keeper;
 mod keeper_gate;
 mod keymap;
 mod login;
+mod netcatty_import;
 mod password_command;
 mod picker;
 mod platform;

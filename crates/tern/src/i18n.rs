@@ -673,6 +673,53 @@ const ZH: &[(&str, &str)] = &[
     ("e.g. gopass show -o …", "例如 gopass show -o …"),
     ("tern {} is available", "tern {} 已发布"),
     ("{}: {}", "{}：{}"),
+    ("Authentication", "认证方式"),
+    ("Browse…", "浏览…"),
+    ("Choose JSON file…", "选择 JSON 文件…"),
+    ("Choose Netcatty JSON export", "选择 Netcatty 导出的 JSON 文件"),
+    ("Choose SSH private key", "选择 SSH 私钥文件"),
+    (
+        "Choose a Netcatty JSON export file to preview hosts",
+        "请选择一个 Netcatty 导出的 JSON 文件以预览主机",
+    ),
+    ("Could not read Netcatty JSON", "无法读取 Netcatty JSON"),
+    (
+        "Enter a passphrase for the new vault.",
+        "请输入新保险箱的口令。",
+    ),
+    ("Enter the vault PIN.", "请输入保险箱 PIN。"),
+    ("Enter the vault passphrase.", "请输入保险箱口令。"),
+    (
+        "Enter the vault passphrase to save the password.",
+        "请输入保险箱口令以保存密码。",
+    ),
+    ("Import from Netcatty JSON", "从 Netcatty JSON 导入"),
+    ("Import from Netcatty JSON…", "从 Netcatty JSON 导入…"),
+    (
+        "No SSH hosts found in this Netcatty JSON file",
+        "这个 Netcatty JSON 文件里没有找到 SSH 主机",
+    ),
+    (
+        "No hosts array found in this Netcatty JSON file.",
+        "这个 Netcatty JSON 文件里没有找到 hosts 数组。",
+    ),
+    (
+        "Remember vault passphrase in Keychain",
+        "在钥匙串中记住保险箱口令",
+    ),
+    (
+        "The passphrase and its confirmation differ.",
+        "两次输入的口令不一致。",
+    ),
+    (
+        "The vault is locked: unlock it, then save the entry again",
+        "保险箱已锁定：请先解锁，再重新保存该条目",
+    ),
+    ("The vault passphrases differ.", "两次输入的保险箱口令不一致。"),
+    (
+        "This is an encrypted Netcatty backup. In Netcatty, use Settings → Data → Export Vault → Sanitized Export (JSON).",
+        "这是加密的 Netcatty 备份文件。请在 Netcatty 中使用「设置 → 数据 → 导出保险箱 → 脱敏导出 (JSON)」。",
+    ),
 ];
 
 #[cfg(test)]

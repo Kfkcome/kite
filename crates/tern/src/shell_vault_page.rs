@@ -3,8 +3,8 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    ClipboardItem, Context, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, div, px,
+    ClipboardItem, Context, Entity, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    MouseDownEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled, div, px,
 };
 use tern_vault::Key;
 
@@ -82,6 +82,12 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap(px(6.))
+                    .on_key_down(cx.listener(|s, e: &KeyDownEvent, _, cx| {
+                        if e.keystroke.key == "enter" {
+                            s.unlock_vault(cx);
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child(if by_pin {
                         field(&ui.pin, &t)
                     } else {
@@ -116,6 +122,12 @@ impl Shell {
                     .flex_col()
                     .items_end()
                     .gap(px(6.))
+                    .on_key_down(cx.listener(|s, e: &KeyDownEvent, _, cx| {
+                        if e.keystroke.key == "enter" {
+                            s.create_vault(cx);
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child(field(&ui.new, &t))
                     .child(field(&ui.confirm, &t))
                     .child(
@@ -260,6 +272,10 @@ impl Shell {
                     .items_center()
                     .gap(px(6.))
                     .child(field(&ui.key_path, &t))
+                    .child(
+                        w::button(&t, "vault-browse-key", tr("Browse…"))
+                            .on_click(cx.listener(|s, _, _, cx| s.pick_vault_key_file(cx))),
+                    )
                     .child(
                         w::button(&t, "vault-import", tr("Import"))
                             .on_click(cx.listener(|s, _, _, cx| s.import_key(cx))),
@@ -426,6 +442,40 @@ impl Shell {
                             .on_click(cx.listener(|s, _, _, cx| s.set_vault_pin(cx))),
                     ),
             ))
+    }
+
+    fn pick_vault_key_file(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(tr("Choose SSH private key").into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let text = path.to_string_lossy().into_owned();
+            let _ = this.update(cx, |s, cx| {
+                if let Some(ui) = &s.vault_ui {
+                    let key_path = ui.key_path.clone();
+                    let key_name = ui.key_name.clone();
+                    key_path.update(cx, |i, cx| i.set_text(text, cx));
+                    if key_name.read(cx).text().trim().is_empty() && !file_name.is_empty() {
+                        key_name.update(cx, |i, cx| i.set_text(file_name, cx));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 }
 

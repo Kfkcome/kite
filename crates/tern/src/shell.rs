@@ -565,6 +565,15 @@ impl Shell {
                                 &t,
                             )
                             .on_click(cx.listener(|s, _, w, cx| s.open_import(w, cx))),
+                        )
+                        .child(
+                            connections_ui::button(
+                                "empty-main-import-netcatty",
+                                tr("Import from Netcatty JSON…"),
+                                false,
+                                &t,
+                            )
+                            .on_click(cx.listener(|s, _, w, cx| s.open_import_netcatty(w, cx))),
                         ),
                 )
             })

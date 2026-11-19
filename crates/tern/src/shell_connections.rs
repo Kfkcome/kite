@@ -21,14 +21,24 @@ use crate::theme::Theme;
 
 #[path = "shell_connection_advanced.rs"]
 mod advanced;
+#[path = "shell_connection_auth.rs"]
+mod auth;
 
 /// Space kept free around the form sheet, per side.
 const FORM_MARGIN: f32 = 24.;
 const FORWARD_HINT: &str = "-L 8080:db:5432   (-R and -D too)";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthMode {
+    Key,
+    Password,
+}
+
 pub(super) struct ConnectionForm {
     /// Index into the shell's connections when editing; `None` for a new one.
     editing: Option<usize>,
+    auth_mode: AuthMode,
+    remember_in_keychain: bool,
     name: Entity<TextInput>,
     host: Entity<TextInput>,
     port: Entity<TextInput>,
@@ -102,6 +112,22 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let d = draft.unwrap_or(Connection {
+            port: 22,
+            user: std::env::var("USER").unwrap_or_default(),
+            ..Connection::default()
+        });
+        let has_saved_password = editing.is_some()
+            && Keeper::lookup(
+                &Key::Password {
+                    user: d.user.clone(),
+                    host: d.host.clone(),
+                    port: d.port,
+                },
+                cx,
+            )
+            .is_some();
+        let remember_in_keychain = !Keeper::exists(cx) || self.settings.vault_keychain;
         let t = self.theme;
         let colors = InputColors {
             text: t.text,
@@ -118,11 +144,13 @@ impl Shell {
                 input
             })
         };
-        let d = draft.unwrap_or(Connection {
-            port: 22,
-            user: std::env::var("USER").unwrap_or_default(),
-            ..Connection::default()
-        });
+        let has_key = d.identity_file.as_deref().is_some_and(|s| !s.trim().is_empty())
+            || d.vault_key.as_deref().is_some_and(|s| !s.trim().is_empty());
+        let auth_mode = if has_saved_password && !has_key {
+            AuthMode::Password
+        } else {
+            AuthMode::Key
+        };
         let password_hint = if editing.is_some() {
             tr("Unchanged")
         } else {
@@ -131,6 +159,8 @@ impl Shell {
         let advanced_open = advanced::in_use(&d);
         let form = ConnectionForm {
             editing,
+            auth_mode,
+            remember_in_keychain,
             advanced_open,
             name: field("production-web", false, d.name),
             host: field("10.0.0.5 or example.com", false, d.host),
@@ -211,6 +241,7 @@ impl Shell {
         });
         self.picker = None;
         window.focus(&first, cx);
+        self.unlock_from_keychain(cx);
         cx.notify();
     }
 
@@ -256,7 +287,7 @@ impl Shell {
         let Some(form) = &self.form else {
             return VaultStep::None;
         };
-        if read(&form.password, cx).is_empty() {
+        if form.auth_mode != AuthMode::Password || read(&form.password, cx).is_empty() {
             VaultStep::None
         } else if Keeper::locked(cx) {
             VaultStep::Unlock
@@ -272,25 +303,23 @@ impl Shell {
             return Vec::new();
         };
         let step = self.vault_step(cx);
-        let mut fields = vec![
-            &form.name,
-            &form.host,
-            &form.port,
-            &form.user,
-            &form.key,
-            &form.group,
-            &form.tags,
-            &form.password,
-        ];
+        let mut fields = vec![&form.name, &form.host, &form.port, &form.user];
+        match form.auth_mode {
+            AuthMode::Key => {
+                fields.push(&form.key);
+                fields.push(&form.vault_key);
+            }
+            AuthMode::Password => {
+                fields.push(&form.password);
+            }
+        }
+        fields.push(&form.group);
+        fields.push(&form.tags);
         // A collapsed section is skipped; its fields are not on screen to land on.
         if form.advanced_open {
             fields.extend([&form.proxy_jump, &form.keep_alive]);
             fields.extend(&form.forwards);
-            fields.extend([
-                &form.vault_key,
-                &form.password_command,
-                &form.sudo_password_command,
-            ]);
+            fields.extend([&form.password_command, &form.sudo_password_command]);
         }
         if step != VaultStep::None {
             fields.push(&form.vault_pass);
@@ -338,15 +367,24 @@ impl Shell {
             form.error = Some(e.clone());
             return cx.notify();
         }
+        let use_key = form.auth_mode == AuthMode::Key;
         let draft = Draft {
             name: read(&form.name, cx),
             host: read(&form.host, cx),
             port: read(&form.port, cx),
             user: read(&form.user, cx),
-            identity_file: read(&form.key, cx),
+            identity_file: if use_key {
+                read(&form.key, cx)
+            } else {
+                String::new()
+            },
             group: read(&form.group, cx),
             tags: read(&form.tags, cx),
-            vault_key: read(&form.vault_key, cx),
+            vault_key: if use_key {
+                read(&form.vault_key, cx)
+            } else {
+                String::new()
+            },
             password_command: read(&form.password_command, cx),
             sudo_password_command: read(&form.sudo_password_command, cx),
             proxy_jump: read(&form.proxy_jump, cx),
@@ -373,14 +411,19 @@ impl Shell {
                 return cx.notify();
             }
         };
-        let password = read(&form.password, cx);
+        let password = if use_key {
+            String::new()
+        } else {
+            read(&form.password, cx)
+        };
         let vault_pass = read(&form.vault_pass, cx);
+        let remember_keychain = form.remember_in_keychain;
         if step != VaultStep::None && vault_pass.is_empty() {
-            form.error = Some("Enter the vault passphrase to save the password.".into());
+            form.error = Some(tr("Enter the vault passphrase to save the password.").into());
             return cx.notify();
         }
         if step == VaultStep::Create && vault_pass != read(&form.vault_repeat, cx) {
-            form.error = Some("The vault passphrases differ.".into());
+            form.error = Some(tr("The vault passphrases differ.").into());
             return cx.notify();
         }
         let key = Key::Password {
@@ -416,6 +459,7 @@ impl Shell {
             key,
             SecretString::from(password),
             SecretString::from(vault_pass),
+            step == VaultStep::Create && remember_keychain,
             cx,
         );
     }
@@ -427,6 +471,7 @@ impl Shell {
         key: Key,
         password: SecretString,
         vault_pass: SecretString,
+        enable_keychain: bool,
         cx: &mut Context<Self>,
     ) {
         let Some(path) = Keeper::path(cx) else {
@@ -451,6 +496,9 @@ impl Shell {
             let (vault, result) = work.await;
             let _ = this.update_in(cx, |shell, window, cx| {
                 if let Some(v) = vault {
+                    if enable_keychain && let Ok(()) = Keeper::set_keychain(true, cx) {
+                        shell.update_settings(|s| s.vault_keychain = true, cx);
+                    }
                     Keeper::put(v, cx);
                 }
                 match result {
@@ -567,7 +615,7 @@ impl Shell {
                         .child(SharedString::from(name))
                 }),
         );
-        let mut body = div()
+        let body = div()
             .flex()
             .flex_col()
             .gap(px(10.))
@@ -582,27 +630,11 @@ impl Shell {
                     .child(div().w(px(96.)).child(row(tr("Port"), &form.port, t))),
             )
             .child(row(tr("User"), &form.user, t))
-            .child(row(tr("Key file"), &form.key, t))
+            .child(self.auth_section(form, step, cx))
             .child(row(tr("Group"), &form.group, t))
             .child(groups)
             .child(row(tr("Tags"), &form.tags, t))
-            .child(row(tr("Password"), &form.password, t))
             .child(self.advanced_section(form, cx));
-        match step {
-            VaultStep::None => {}
-            VaultStep::Unlock => {
-                body = body.child(row(tr("Vault passphrase"), &form.vault_pass, t))
-            }
-            VaultStep::Create => {
-                body = body
-                    .child(note(
-                        tr("No vault yet: this creates one, locked with this passphrase."),
-                        t,
-                    ))
-                    .child(row(tr("New vault passphrase"), &form.vault_pass, t))
-                    .child(row(tr("Repeat passphrase"), &form.vault_repeat, t));
-            }
-        }
         let busy = form.busy;
         let card =
             div()

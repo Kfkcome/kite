@@ -1,7 +1,6 @@
 // Adapted from zeron crates/ui/src/shell/command_palette.rs (palette card and overlay) (MIT).
-//! "Import from ~/.ssh/config…": a sheet listing the config's hosts, and a one-time copy of
-//! the checked ones into `hosts.json` as ordinary, editable connections. There is no link back:
-//! later edits to `~/.ssh/config` do not reach tern, and tern never writes that file.
+//! Import sheet: one-time copy of hosts from `~/.ssh/config` or a Netcatty JSON export into
+//! `hosts.json` as ordinary, editable connections.
 
 use crate::hover::HoverFade as _;
 use gpui::prelude::FluentBuilder;
@@ -15,29 +14,68 @@ use super::connections_ui::{button, note};
 use super::{Shell, ToastKind};
 use crate::connections::{self, Connection};
 use crate::i18n::{fill, tr};
+use crate::netcatty_import;
 use crate::picker;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportSource {
+    SshConfig,
+    NetcattyJson,
+}
+
 pub(super) struct ImportSheet {
+    source: ImportSource,
+    netcatty_file: Option<String>,
+    netcatty_error: Option<String>,
     rows: Vec<Row>,
     focus: FocusHandle,
 }
 
 struct Row {
-    host: HostEntry,
+    connection: Connection,
+    display_addr: String,
     checked: bool,
     /// A connection with this name is already in tern, so importing would collide.
     imported: bool,
 }
 
-/// The sheet's rows: every config host, ticked unless tern already has a connection by that
-/// name.
+/// The sheet's rows from `~/.ssh/config`: every config host, ticked unless tern already has a
+/// connection by that name.
 fn rows(config: Vec<HostEntry>, connections: &[Connection]) -> Vec<Row> {
     config
         .into_iter()
         .map(|host| {
             let imported = connections.iter().any(|c| c.name == host.alias);
+            let display_addr = crate::sidebar::address(&host);
             Row {
-                host,
+                connection: Connection::from_entry(&host),
+                display_addr,
+                checked: !imported,
+                imported,
+            }
+        })
+        .collect()
+}
+
+fn netcatty_rows(parsed: Vec<Connection>, connections: &[Connection]) -> Vec<Row> {
+    parsed
+        .into_iter()
+        .map(|conn| {
+            let imported = connections.iter().any(|c| c.name == conn.name);
+            let display_addr = if conn.user.is_empty() {
+                if conn.port == 22 {
+                    conn.host.clone()
+                } else {
+                    format!("{}:{}", conn.host, conn.port)
+                }
+            } else if conn.port == 22 {
+                format!("{}@{}", conn.user, conn.host)
+            } else {
+                format!("{}@{}:{}", conn.user, conn.host, conn.port)
+            };
+            Row {
+                connection: conn,
+                display_addr,
                 checked: !imported,
                 imported,
             }
@@ -51,7 +89,7 @@ fn to_import(rows: &[Row], local_user: &str) -> Vec<Connection> {
     rows.iter()
         .filter(|r| r.checked && !r.imported)
         .map(|r| {
-            let mut c = Connection::from_entry(&r.host);
+            let mut c = r.connection.clone();
             if c.user.is_empty() {
                 c.user = local_user.to_owned();
             }
@@ -66,10 +104,100 @@ impl Shell {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         self.import = Some(ImportSheet {
+            source: ImportSource::SshConfig,
+            netcatty_file: None,
+            netcatty_error: None,
             rows: rows(tern_ssh::load_ssh_config_hosts(), &self.connections),
             focus,
         });
         cx.notify();
+    }
+
+    pub(crate) fn open_import_netcatty(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.picker = None;
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
+        self.import = Some(ImportSheet {
+            source: ImportSource::NetcattyJson,
+            netcatty_file: None,
+            netcatty_error: None,
+            rows: Vec::new(),
+            focus,
+        });
+        cx.notify();
+        self.pick_netcatty_file(cx);
+    }
+
+    fn switch_import_source(&mut self, source: ImportSource, cx: &mut Context<Self>) {
+        let Some(sheet) = self.import.as_mut() else {
+            return;
+        };
+        if sheet.source == source {
+            return;
+        }
+        sheet.source = source;
+        match source {
+            ImportSource::SshConfig => {
+                sheet.netcatty_error = None;
+                sheet.rows = rows(tern_ssh::load_ssh_config_hosts(), &self.connections);
+                cx.notify();
+            }
+            ImportSource::NetcattyJson => {
+                sheet.rows.clear();
+                cx.notify();
+                if sheet.netcatty_file.is_none() {
+                    self.pick_netcatty_file(cx);
+                }
+            }
+        }
+    }
+
+    fn pick_netcatty_file(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(tr("Choose Netcatty JSON export").into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+            let parsed = cx
+                .background_executor()
+                .spawn(async move {
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|text| netcatty_import::parse_netcatty_json(&text))
+                })
+                .await;
+            let _ = this.update(cx, |shell, cx| {
+                let Some(sheet) = shell.import.as_mut() else {
+                    return;
+                };
+                sheet.source = ImportSource::NetcattyJson;
+                sheet.netcatty_file = Some(file_name);
+                match parsed {
+                    Ok(conns) => {
+                        sheet.netcatty_error = None;
+                        sheet.rows = netcatty_rows(conns, &shell.connections);
+                    }
+                    Err(err) => {
+                        sheet.netcatty_error = Some(err);
+                        sheet.rows.clear();
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn close_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -140,14 +268,29 @@ impl Shell {
             .px(px(8.))
             .py(px(8.));
         if sheet.rows.is_empty() {
+            let empty_text: SharedString = match sheet.source {
+                ImportSource::SshConfig => tr("No hosts found in ~/.ssh/config").into(),
+                ImportSource::NetcattyJson => {
+                    if let Some(err) = &sheet.netcatty_error {
+                        err.clone().into()
+                    } else if sheet.netcatty_file.is_some() {
+                        tr("No SSH hosts found in this Netcatty JSON file").into()
+                    } else {
+                        tr("Choose a Netcatty JSON export file to preview hosts").into()
+                    }
+                }
+            };
+            let is_err =
+                sheet.source == ImportSource::NetcattyJson && sheet.netcatty_error.is_some();
             list = list.child(
                 div()
                     .py(px(24.))
+                    .px(px(16.))
                     .flex()
                     .justify_center()
                     .text_sm()
-                    .text_color(t.muted)
-                    .child(tr("No hosts found in ~/.ssh/config")),
+                    .text_color(if is_err { t.danger } else { t.muted })
+                    .child(empty_text),
             );
         }
         for (ix, r) in sheet.rows.iter().enumerate() {
@@ -195,7 +338,7 @@ impl Shell {
                         div()
                             .text_sm()
                             .when(off, |el| el.text_color(t.faint))
-                            .child(SharedString::from(r.host.alias.clone())),
+                            .child(SharedString::from(r.connection.name.clone())),
                     )
                     .child(
                         div()
@@ -206,8 +349,10 @@ impl Shell {
                             .text_color(t.muted)
                             .child(SharedString::from(if off {
                                 tr("Already in tern").to_owned()
+                            } else if let Some(group) = &r.connection.group {
+                                format!("{} · {}", r.display_addr, group)
                             } else {
-                                crate::sidebar::address(&r.host)
+                                r.display_addr.clone()
                             })),
                     ),
             );
@@ -216,6 +361,50 @@ impl Shell {
             0 => tr("Import").to_owned(),
             n => fill("Import {}", &[&n.to_string()]),
         };
+        let header_title = match sheet.source {
+            ImportSource::SshConfig => tr("Import from ~/.ssh/config"),
+            ImportSource::NetcattyJson => tr("Import from Netcatty JSON"),
+        };
+        let source_tabs = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                button(
+                    "import-src-ssh",
+                    "~/.ssh/config",
+                    sheet.source == ImportSource::SshConfig,
+                    t,
+                )
+                .on_click(cx.listener(|shell, _, _, cx| {
+                    shell.switch_import_source(ImportSource::SshConfig, cx)
+                })),
+            )
+            .child(
+                button(
+                    "import-src-netcatty",
+                    "Netcatty JSON",
+                    sheet.source == ImportSource::NetcattyJson,
+                    t,
+                )
+                .on_click(cx.listener(|shell, _, _, cx| {
+                    shell.switch_import_source(ImportSource::NetcattyJson, cx)
+                })),
+            )
+            .when(sheet.source == ImportSource::NetcattyJson, |el| {
+                el.child(
+                    button(
+                        "import-pick-netcatty",
+                        sheet
+                            .netcatty_file
+                            .as_deref()
+                            .unwrap_or_else(|| tr("Choose JSON file…")),
+                        false,
+                        t,
+                    )
+                    .on_click(cx.listener(|shell, _, _, cx| shell.pick_netcatty_file(cx))),
+                )
+            });
         let card = div()
             .id("import-sheet")
             .track_focus(&sheet.focus)
@@ -236,8 +425,16 @@ impl Shell {
                     .border_color(t.hairline)
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
-                    .child(div().text_size(px(14.)).child(tr("Import from ~/.ssh/config")))
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(8.))
+                            .child(div().text_size(px(14.)).child(header_title)),
+                    )
+                    .child(source_tabs)
                     .child(note(
                         tr("Copies the checked hosts into tern once. The file is never read again or changed."),
                         t,

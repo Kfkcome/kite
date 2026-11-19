@@ -21,7 +21,6 @@ pub(super) fn in_use(c: &Connection) -> bool {
         || c.keep_alive.is_some_and(|k| k != DEFAULT_KEEP_ALIVE)
         || c.forward_agent
         || !c.forwards.is_empty()
-        || set(&c.vault_key)
         || set(&c.password_command)
         || set(&c.sudo_password_command)
 }
@@ -106,7 +105,6 @@ impl Shell {
                             ),
                     )
                     .child(self.forward_rows(form, cx))
-                    .child(row(tr("Vault key"), &form.vault_key, t))
                     .child(row(tr("Password command"), &form.password_command, t))
                     .child(row(
                         tr("Sudo password command"),
@@ -252,13 +250,6 @@ mod tests {
                 "forwards",
                 Connection {
                     forwards: vec!["-L 8080:db:5432".into()],
-                    ..plain()
-                },
-            ),
-            (
-                "vault_key",
-                Connection {
-                    vault_key: Some("deploy-key".into()),
                     ..plain()
                 },
             ),
