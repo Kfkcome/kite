@@ -72,12 +72,20 @@
 
 ## 下载与安装
 
-可直接前往 [Releases](https://github.com/Kfkcome/kite/releases) 下载对应平台构建产物（macOS Apple Silicon 请下载 `*-macos-arm64.zip`）。
+### macOS (Homebrew，推荐)
+
+```sh
+brew install --cask --no-quarantine Kfkcome/kite/kite
+```
+
+### 手动下载
+
+也可前往 [Releases](https://github.com/Kfkcome/kite/releases) 下载对应平台构建产物（macOS Apple Silicon 请下载 `*-macos-arm64.zip`）。
 
 > **macOS 首次打开提示说明**
-> 由于当前版本未接入付费 Apple Developer 商业签名与公证，从浏览器下载后首次打开可能会触发 macOS Gatekeeper 拦截，任选以下一种方式即可永久放行：
+> 由于当前版本未接入付费 Apple Developer 商业签名与公证，若未使用上方 `brew install --cask --no-quarantine` 安装、而是从浏览器直接下载，首次打开可能会触发 macOS Gatekeeper 拦截，任选以下一种方式即可永久放行：
 > - 将 `Kite.app` 拖进 `/Applications` 后，在终端执行一次：`xattr -cr /Applications/Kite.app`
-> - 或者打开一次后前往 **系统设置 → 隐私与安全性** 点击 **“仍要打开”**（通过 Homebrew Cask 安装也可使用 `--no-quarantine` 自动跳过）
+> - 或者打开一次后前往 **系统设置 → 隐私与安全性** 点击 **“仍要打开”**
 
 ## 构建与运行
 

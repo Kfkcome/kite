@@ -27,11 +27,22 @@ All notable changes to tern are recorded here. The format follows [Keep a Change
 
 - Dependencies updated past RUSTSEC-2026-0383 (`webpki-root-certs` trusted distrusted emSign intermediates), RUSTSEC-2026-0385 and -0387 (timing leaks in `ctutils` and `crypto-bigint`) and RUSTSEC-2026-0386 (`tokio` `AsyncFd` I/O safety), and off the yanked `async-executor` 1.14.0 and `crypto-bigint` 0.7.5.
 
-## [0.1.3] - 2026-10-11
+## [0.1.3] - 2026-11-19
+
+### Added
+
+- **Rebranded to Kite** with a new minimalist diamond kite icon (`Kite.app`, `dev.kite.app`).
+- **SSH via Proxy**: native **SOCKS5** (no-auth & username/password), **HTTP CONNECT**, and `ProxyCommand` support in `kite-ssh` and Connection Advanced settings.
+- **Drag-to-split & Tab detach**: drag tabs or split panes freely into side-by-side splits or separate windows.
+- **Terminal Scrollbar & Smooth Scrolling**: auto-hiding overlay scrollbar thumb (draggable even outside the pane/window) and sub-line pixel-level smooth scrolling for trackpads and mouse wheels.
+
+### Changed
+
+- **Performance & Memory optimizations**: event-driven local PTY polling, output coalescing, and skipping hidden sidebar renders.
 
 ### Fixed
 
-- Host key verification now matches OpenSSH: tern accepts a server when any key recorded for it in `known_hosts` matches, so a stale earlier entry of the same type no longer reports the key as changed and refuses the connection (#36). The changed-key message's line number counts comment and blank lines, so it points at the offending entry as an editor shows it (#37).
+- Host key verification now matches OpenSSH: accepts a server when any key recorded for it in `known_hosts` matches, and counts comment/blank lines in changed-key error line numbers.
 
 ## [0.1.2] - 2026-10-06
 
