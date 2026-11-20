@@ -26,6 +26,9 @@ pub(super) struct HostList {
     pub collapsed_groups: Vec<String>,
     pub recent: Recent,
     pub layout: sidebar::Layout,
+    /// Folders with no host yet. Not written to `hosts.json`; a group stays while its last
+    /// host is moved, until Remove group.
+    pub empty_groups: Vec<String>,
     _repaint: Subscription,
 }
 
@@ -45,6 +48,7 @@ impl HostList {
             collapsed_groups: Vec::new(),
             recent,
             layout: sidebar::Layout::default(),
+            empty_groups: Vec::new(),
             _repaint: repaint,
         }
     }

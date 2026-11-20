@@ -277,12 +277,7 @@ impl Shell {
                     .text_color(if running { t.danger } else { t.accent })
                     .hover(|s| s.bg(t.row_active))
                     .on_click(cx.listener(move |shell, _, _, cx| {
-                        shell.toggle_shared_forward(
-                            owner.clone(),
-                            &fwd_start,
-                            running_id,
-                            cx,
-                        );
+                        shell.toggle_shared_forward(owner.clone(), &fwd_start, running_id, cx);
                     }))
                     .child(if running { tr("Stop") } else { tr("Start") }),
             )

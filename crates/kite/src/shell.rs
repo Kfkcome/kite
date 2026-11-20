@@ -99,6 +99,8 @@ pub(crate) use themes_ui::ThemeTarget;
 pub(crate) mod connections_ui;
 #[path = "shell_forwards_view.rs"]
 mod forwards_view;
+#[path = "shell_groups.rs"]
+mod groups_ui;
 #[path = "shell_hostlist.rs"]
 mod hostlist;
 #[path = "shell_import.rs"]
@@ -189,6 +191,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 tab_scroll: gpui::ScrollHandle::new(),
                 context_menu: None,
                 hostlist: hostlist::HostList::new(&theme, recent, cx),
+                group_prompt: None,
                 snippets: snippets_ui::SnippetsUi::load(),
                 layouts: layouts_ui::State::load(),
                 import: None,
@@ -299,6 +302,7 @@ pub struct Shell {
     tab_scroll: gpui::ScrollHandle,
     context_menu: Option<menu::ContextMenu>,
     hostlist: hostlist::HostList,
+    group_prompt: Option<groups_ui::Prompt>,
     snippets: snippets_ui::SnippetsUi,
     layouts: layouts_ui::State,
     import: Option<import_ui::ImportSheet>,
@@ -460,7 +464,14 @@ impl Shell {
             .iter()
             .map(|c| c.entry_in(&self.connections))
             .collect();
-        self.hostlist.layout = sidebar::layout(&self.connections);
+        self.hostlist.empty_groups.retain(|name| {
+            !self
+                .connections
+                .iter()
+                .any(|connection| connection.group.as_deref() == Some(name.as_str()))
+        });
+        self.hostlist.layout =
+            sidebar::layout_with_empty(&self.connections, &self.hostlist.empty_groups);
     }
 
     /// Focus back to the active terminal, or the window when there is none.
@@ -567,6 +578,7 @@ impl Render for Shell {
         let snippet_picker = self.render_snippet_picker(window, cx);
         let snippet_form = self.render_snippet_form(window, cx);
         let layout_prompt = self.render_layout_prompt(window, cx);
+        let group_prompt = self.render_group_prompt(window, cx);
         let panel_bg = self.panel_background();
         let hero = self.empty_view_hero(window);
         let layers = self.backdrop();
@@ -638,7 +650,10 @@ impl Render for Shell {
                 }
             }))
             .on_key_down(cx.listener(|s, e: &gpui::KeyDownEvent, w, cx| {
-                if s.on_rename_key(e, w, cx) || s.on_layout_prompt_key(e, w, cx) {
+                if s.on_rename_key(e, w, cx)
+                    || s.on_layout_prompt_key(e, w, cx)
+                    || s.on_group_prompt_key(e, w, cx)
+                {
                     cx.stop_propagation();
                     return;
                 }
@@ -710,6 +725,7 @@ impl Render for Shell {
             .when_some(snippet_picker, |el, p| el.child(p))
             .when_some(snippet_form, |el, f| el.child(f))
             .when_some(layout_prompt, |el, p| el.child(p))
+            .when_some(group_prompt, |el, prompt| el.child(prompt))
             .when_some(theme_picker, |el, p| el.child(p))
             .when_some(context_menu, |el, m| el.child(m))
             .when_some(self.render_broadcast_picker(cx), |el, p| el.child(p))

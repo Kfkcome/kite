@@ -8,9 +8,9 @@ use crate::hover::Accessible as _;
 use crate::hover::HoverFade as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, Entity, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Transformation, div,
-    percentage, px,
+    AppContext as _, Context, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    Transformation, div, percentage, px,
 };
 use kite_ssh::HostEntry;
 
@@ -23,9 +23,12 @@ use crate::tabs::{self, TabInfo};
 use crate::text_input::TextInput;
 use crate::theme::Theme;
 
+#[path = "sidebar_groups.rs"]
+mod groups;
 #[path = "sidebar_layouts.rs"]
 mod layouts_ui;
 
+pub use groups::layout_with_empty;
 pub(crate) use layouts_ui::{LayoutsResize, dragged_layouts_height, layouts_display_height};
 
 /// `hosts[i]` is `connections[i].entry()`: the sidebar lists tern's own connections only.
@@ -54,19 +57,7 @@ pub struct Layout {
 
 /// Groups sorted by name (case-insensitive); hosts keep their saved order inside each.
 pub fn layout(connections: &[Connection]) -> Layout {
-    let mut ungrouped = Vec::new();
-    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
-    for (ix, c) in connections.iter().enumerate() {
-        match c.group.as_deref() {
-            None => ungrouped.push(ix),
-            Some(name) => match groups.iter_mut().find(|(g, _)| g == name) {
-                Some((_, rows)) => rows.push(ix),
-                None => groups.push((name.to_owned(), vec![ix])),
-            },
-        }
-    }
-    groups.sort_by_key(|(name, _)| name.to_lowercase());
-    Layout { ungrouped, groups }
+    layout_with_empty(connections, &[])
 }
 
 /// The group names in use, for the form's suggestions.
@@ -108,7 +99,13 @@ pub fn render(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .px(px(8.));
+        .px(px(8.))
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(|shell, event: &MouseDownEvent, _, cx| {
+                shell.open_hosts_menu(event.position, cx);
+            }),
+        );
     // What a row has to lay out: the sidebar less list padding, row padding, dot and gaps.
     let inner = s.width - 61.;
     let one = |scope: &'static str, ix: usize, top: bool, cx: &mut Context<Shell>| {
@@ -151,42 +148,17 @@ pub fn render(
                     .child(tr("No hosts match")),
             );
         }
-    } else {
+    } else if !s.hosts.is_empty() || !s.layout.groups.is_empty() {
         // One list: tern's connections, ungrouped first, then each group under its own header.
         // No Recent (it repeated these rows) and no wrapper section around them; recency orders
-        // the ⌘K picker instead.
-        if !s.hosts.is_empty() {
-            {
-                let layout = s.layout;
-                let mut body = div().pt(px(4.)).flex().flex_col().gap(px(2.));
-                for &ix in &layout.ungrouped {
-                    body = body.child(one("host", ix, false, cx));
-                }
-                list = list.child(body);
-                for (n, (name, rows)) in layout.groups.iter().enumerate() {
-                    let folded = s.collapsed_groups.contains(name);
-                    let toggled = name.clone();
-                    list = list.child(section_header(
-                        ("group-header", n),
-                        SharedString::from(format!("{name} · {}", rows.len())),
-                        folded,
-                        true,
-                        t,
-                        cx,
-                        move |shell, cx| shell.toggle_group(&toggled, cx),
-                    ));
-                    if !folded {
-                        let mut body = div().pt(px(4.)).pl(px(12.)).flex().flex_col().gap(px(2.));
-                        for &ix in rows {
-                            body = body.child(one("host", ix, false, cx));
-                        }
-                        list = list.child(body);
-                    }
-                }
-            }
-        }
+        // the ⌘K picker instead. An empty folder still shows, so it can receive a host.
+        list = groups::append_saved_hosts(list, s, inner, t, cx);
     }
-    if s.hosts.is_empty() && s.layouts.is_empty() && s.query.trim().is_empty() {
+    if s.hosts.is_empty()
+        && s.layout.groups.is_empty()
+        && s.layouts.is_empty()
+        && s.query.trim().is_empty()
+    {
         list = list.child(empty_state(t, cx));
     }
     div()
@@ -196,27 +168,9 @@ pub fn render(
         .min_h_0()
         .flex()
         .flex_col()
-        .child(header(t, cx))
+        .child(groups::hosts_header(t, cx))
         .child(search_field(s.search, t, cx))
-        .child(
-            div().px(px(8.)).pb(px(4.)).child(
-                div()
-                    .id("sidebar-local-terminal")
-                    .h(px(28.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .text_size(px(13.))
-                    .text_color(t.text)
-                    .hover_fade("sidebar-local", gpui::transparent_black(), t.row_hover)
-                    .on_click(cx.listener(|s, _, w, cx| s.open_local_terminal(w, cx)))
-                    .child(icon(icons::TERMINAL).size(px(14.)).text_color(t.accent))
-                    .child(tr("Local Terminal")),
-            ),
-        )
+        .child(groups::local_terminal(t, cx))
         .child(list)
         .when(!s.layouts.is_empty() && s.query.trim().is_empty(), |el| {
             el.child(layouts_ui::layouts_dock(s, t, cx))
@@ -291,30 +245,6 @@ fn search_field(
             .child(icon(icons::SEARCH).size(px(13.)).text_color(t.muted))
             .child(div().flex_1().min_w_0().child(input.clone())),
     )
-}
-
-/// zeron's project-header row: the title and a 24 pt + button.
-fn header(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
-    div()
-        .px(px(16.))
-        .pt(px(8.))
-        .pb(px(4.))
-        .h(px(37.))
-        .flex()
-        .items_center()
-        .justify_between()
-        .child(
-            div()
-                .text_size(px(13.))
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(t.text.opacity(crate::theme::by_dpi(0.8, 0.9)))
-                .child(tr("Hosts")),
-        )
-        .child(
-            icon_button("new-connection", icons::PLUS, 24., 16., t)
-                .icon_button(tr("New connection"), t)
-                .on_click(cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx))),
-        )
 }
 
 /// A section label with zeron's collapse chevron (12 pt, rotated a quarter turn when open).
@@ -433,6 +363,10 @@ fn row(
         .on_click(cx.listener(move |shell, _, window, cx| {
             shell.connect_host(&target, window, cx);
         }))
+        .when_some(
+            groups::dragged_host(scope, ix, &host.alias, t),
+            |el, dragged| el.on_drag(dragged, |item, _, _, cx| cx.new(|_| item.clone())),
+        )
         .on_mouse_down(
             MouseButton::Right,
             cx.listener(move |shell, e: &MouseDownEvent, _, cx| {

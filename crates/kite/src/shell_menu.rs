@@ -13,7 +13,7 @@ use gpui::{
 use kite_ssh::{ConnectSpec, HostEntry};
 
 use super::{Shell, ThemeTarget};
-use crate::i18n::tr;
+use crate::i18n::{fill, tr};
 use crate::icons::{self, icon};
 
 type Run = Rc<dyn Fn(&mut Shell, &mut Window, &mut Context<Shell>)>;
@@ -89,11 +89,95 @@ impl Shell {
             s.open_theme_picker(ThemeTarget::Host(theme_alias.clone()), w, cx)
         }));
         items.push(Item::Separator);
+        self.push_host_groups(&mut items, editable);
+        items.push(Item::Separator);
         // The menu is already a deliberate second step, so remove at once; Undo covers it.
         items.push(destructive(icons::TRASH, tr("Remove"), move |s, _, cx| {
             s.confirm_delete = Some(editable);
             s.delete_connection(editable, cx);
         }));
+        self.context_menu = Some(ContextMenu { position, items });
+        cx.notify();
+    }
+
+    fn push_host_groups(&self, items: &mut Vec<Item>, editable: usize) {
+        let current = self
+            .connections
+            .get(editable)
+            .and_then(|connection| connection.group.clone());
+        if current.is_some() {
+            items.push(action(
+                icons::FOLDER,
+                tr("Remove from group"),
+                move |shell, _, cx| shell.move_host_to_group(editable, None, cx),
+            ));
+        }
+        let groups: Vec<String> = self
+            .hostlist
+            .layout
+            .groups
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in groups {
+            if current.as_deref() == Some(name.as_str()) {
+                continue;
+            }
+            let target = name.clone();
+            items.push(action(
+                icons::FOLDER,
+                fill("Move to {}", &[name.as_str()]),
+                move |shell, _, cx| shell.move_host_to_group(editable, Some(&target), cx),
+            ));
+        }
+        items.push(action(
+            icons::PLUS,
+            tr("New group…"),
+            move |shell, window, cx| {
+                shell.prompt_move_host_to_new_group(editable, window, cx);
+            },
+        ));
+    }
+
+    /// Right-click on the host list background or the Hosts header.
+    pub(crate) fn open_hosts_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let items = vec![
+            action(icons::PLUS, tr("New group…"), |shell, window, cx| {
+                shell.prompt_new_group(window, cx);
+            }),
+            action(icons::SERVER, tr("New connection"), |shell, window, cx| {
+                shell.open_form(None, None, window, cx);
+            }),
+        ];
+        self.context_menu = Some(ContextMenu { position, items });
+        cx.notify();
+    }
+
+    /// Right-click on a group header.
+    pub(crate) fn open_group_menu(
+        &mut self,
+        name: &str,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let rename = name.to_owned();
+        let remove = name.to_owned();
+        let items = vec![
+            action(icons::PLUS, tr("New group…"), |shell, window, cx| {
+                shell.prompt_new_group(window, cx);
+            }),
+            action(
+                icons::PEN,
+                tr("Rename group…"),
+                move |shell, window, cx| {
+                    shell.prompt_rename_group(&rename, window, cx);
+                },
+            ),
+            Item::Separator,
+            destructive(icons::TRASH, tr("Remove group"), move |shell, _, cx| {
+                shell.remove_group(&remove, cx);
+            }),
+        ];
         self.context_menu = Some(ContextMenu { position, items });
         cx.notify();
     }
