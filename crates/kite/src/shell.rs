@@ -3,11 +3,10 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, MouseButton, MouseUpEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowOptions, actions, div, point, px,
-    size,
+    App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    MouseButton, MouseUpEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
+    Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
+    WindowOptions, actions, div, point, px, size,
 };
 #[cfg(debug_assertions)]
 use kite_ssh::ConnectSpec;
@@ -15,14 +14,13 @@ use kite_ssh::HostEntry;
 
 use crate::chrome::{self, DragGhost, SidebarResize, WidthTween};
 use crate::connections::{self, Connection};
-use crate::i18n::tr;
 use crate::picker::{self, Picker, ToggleHostPicker};
 use crate::session::{Launch, Session, Status};
 use crate::settings::{self, SIDEBAR_DEFAULT, Settings};
+use crate::sidebar;
 use crate::split::{self, PaneId};
 use crate::tabs::{self, ActivateTab, CloseTab, NextTab, PrevTab};
 use crate::theme::Theme;
-use crate::sidebar;
 
 actions!(
     tern,
@@ -38,7 +36,8 @@ actions!(
         FocusPaneRight,
         FocusPaneUp,
         FocusPaneDown,
-        OpenSettings
+        OpenSettings,
+        SaveLayout
     ]
 );
 
@@ -60,10 +59,10 @@ mod menu;
 mod open;
 #[path = "shell_settings.rs"]
 mod settings_ui;
-#[path = "shell_status_bar.rs"]
-mod status_bar;
 #[path = "shell_split_detach.rs"]
 mod split_detach;
+#[path = "shell_status_bar.rs"]
+mod status_bar;
 pub(crate) use split_detach::DraggedPane;
 #[path = "shell_split_drag.rs"]
 mod split_drag;
@@ -102,6 +101,10 @@ mod forwards_view;
 mod hostlist;
 #[path = "shell_import.rs"]
 mod import_ui;
+#[path = "shell_layouts.rs"]
+mod layouts_ui;
+#[path = "shell_local_cwd.rs"]
+mod local_cwd;
 #[path = "shell_snippets.rs"]
 mod snippets_ui;
 
@@ -184,6 +187,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 context_menu: None,
                 hostlist: hostlist::HostList::new(&theme, recent, cx),
                 snippets: snippets_ui::SnippetsUi::load(),
+                layouts: layouts_ui::State::load(),
                 import: None,
                 wp: wallpaper_ui::State::default(),
                 frame: look::FrameState::default(),
@@ -224,6 +228,9 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
     // the focused element's path, so the shell itself must be focused for ⌘K to work.
     window.update(cx, |shell, window, cx| window.focus(&shell.focus, cx))?;
     window.update(cx, |shell, window, cx| shell.restore_tabs(window, cx))?;
+    window.update(cx, |shell, window, cx| {
+        shell.install_local_cwd_hooks(window, cx)
+    })?;
     window.update(cx, |shell, _, cx| shell.watch_idle(cx))?;
     Ok(window)
 }
@@ -288,6 +295,7 @@ pub struct Shell {
     context_menu: Option<menu::ContextMenu>,
     hostlist: hostlist::HostList,
     snippets: snippets_ui::SnippetsUi,
+    layouts: layouts_ui::State,
     import: Option<import_ui::ImportSheet>,
     wp: wallpaper_ui::State,
     frame: look::FrameState,
@@ -312,6 +320,8 @@ struct Pane {
     id: PaneId,
     /// A tab can hold panes from different hosts, so the host lives here.
     alias: String,
+    /// Directory a local shell was last seen in. SSH panes leave this empty.
+    cwd: Option<std::path::PathBuf>,
     session: Entity<Session>,
     _repaint: Subscription,
     _bell: Subscription,
@@ -323,6 +333,8 @@ struct Tab {
     /// The user's name for the tab. It belongs to the tab, not the session, so a reconnect
     /// keeps it.
     title: Option<String>,
+    /// The saved layout this tab updates, when it was opened or saved as one.
+    layout_id: Option<String>,
     /// How the panes are laid out, and which one has the keyboard.
     tree: split::Node,
     focused: PaneId,
@@ -486,108 +498,6 @@ impl Shell {
         self.error = Some(error);
         cx.notify();
     }
-
-    /// The main panel's content: the active tab's panes, or the empty view, which carries the
-    /// wallpaper `hero` (the picture filling the tile) under its text.
-    fn panel_content(
-        &self,
-        hero: Option<AnyElement>,
-        panel_bg: gpui::Hsla,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        if let Some(tab) = self.tabs.get(self.active) {
-            return self.render_panes(tab, cx);
-        }
-        let t = self.theme;
-        let keymap = cx.global::<crate::keymap::Keymap>();
-        let hint = |id: crate::keymap::ShortcutId, label: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .child(
-                    div()
-                        .min_w(px(44.))
-                        .flex()
-                        .justify_end()
-                        .text_sm()
-                        .text_color(t.text)
-                        .child(SharedString::from(crate::keymap::badge(keymap.combo(id)))),
-                )
-                .child(div().text_sm().text_color(t.muted).child(label))
-        };
-        let (title, detail): (SharedString, Option<SharedString>) = match &self.error {
-            Some(e) => ("Could not open that".into(), Some(e.clone().into())),
-            None if self.hosts.is_empty() => (
-                "No hosts yet".into(),
-                Some("Add a connection, or copy your hosts over from ~/.ssh/config".into()),
-            ),
-            None => ("No session open".into(), None),
-        };
-        // Over the picture the text sits below its upper part, on a plate of the panel colour,
-        // so it never depends on what the picture holds.
-        let on_picture = hero.is_some();
-        div()
-            .size_full()
-            .relative()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(16.))
-            .children(hero)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap(px(4.))
-                    .when(on_picture, |el| look::plate(el, panel_bg))
-                    .child(div().text_size(px(15.)).text_color(t.text).child(title))
-                    .when_some(detail, |el, d| {
-                        el.child(div().text_sm().text_color(t.muted).child(d))
-                    }),
-            )
-            .when(self.hosts.is_empty(), |el| {
-                el.child(
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(
-                            connections_ui::button(
-                                "empty-main-new",
-                                tr("New connection"),
-                                true,
-                                &t,
-                            )
-                            .on_click(cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx))),
-                        )
-                        .child(
-                            connections_ui::button(
-                                "empty-main-import",
-                                tr("Import from ~/.ssh/config…"),
-                                false,
-                                &t,
-                            )
-                            .on_click(cx.listener(|s, _, w, cx| s.open_import(w, cx))),
-                        ),
-                )
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .when(on_picture, |el| look::plate(el, panel_bg))
-                    .child(hint(crate::keymap::ShortcutId::HostPicker, "Find a host"))
-                    .child(hint(
-                        crate::keymap::ShortcutId::NewConnection,
-                        tr("New connection"),
-                    ))
-                    .child(hint(crate::keymap::ShortcutId::Settings, tr("Settings"))),
-            )
-            .into_any_element()
-    }
 }
 
 impl Render for Shell {
@@ -628,6 +538,7 @@ impl Render for Shell {
                     active_alias: active_alias.as_deref(),
                     width: self.settings.sidebar_width,
                     collapsed_groups: &self.hostlist.collapsed_groups,
+                    layouts: &self.layouts.items,
                     query: &query,
                     search: &self.hostlist.search,
                 },
@@ -642,6 +553,7 @@ impl Render for Shell {
         let import = self.render_import(window, cx);
         let snippet_picker = self.render_snippet_picker(window, cx);
         let snippet_form = self.render_snippet_form(window, cx);
+        let layout_prompt = self.render_layout_prompt(window, cx);
         let panel_bg = self.panel_background();
         let hero = self.empty_view_hero(window);
         let layers = self.backdrop();
@@ -701,6 +613,7 @@ impl Render for Shell {
             .on_action(cx.listener(|s, _: &FillPassword, _, cx| s.fill_password(cx)))
             .on_action(cx.listener(|s, _: &NewConnection, w, cx| s.open_form(None, None, w, cx)))
             .on_action(cx.listener(|s, _: &OpenSettings, w, cx| s.toggle_settings(w, cx)))
+            .on_action(cx.listener(|s, _: &SaveLayout, w, cx| s.save_layout(w, cx)))
             // Capture phase: the terminal handles Escape itself, and ending a broadcast must
             // not depend on which pane has focus.
             .capture_key_down(cx.listener(|s, e: &gpui::KeyDownEvent, _, cx| {
@@ -712,7 +625,7 @@ impl Render for Shell {
                 }
             }))
             .on_key_down(cx.listener(|s, e: &gpui::KeyDownEvent, w, cx| {
-                if s.on_rename_key(e, w, cx) {
+                if s.on_rename_key(e, w, cx) || s.on_layout_prompt_key(e, w, cx) {
                     cx.stop_propagation();
                     return;
                 }
@@ -774,17 +687,23 @@ impl Render for Shell {
             .when_some(import, |el, i| el.child(i))
             .when_some(snippet_picker, |el, p| el.child(p))
             .when_some(snippet_form, |el, f| el.child(f))
+            .when_some(layout_prompt, |el, p| el.child(p))
             .when_some(theme_picker, |el, p| el.child(p))
             .when_some(context_menu, |el, m| el.child(m))
             .when_some(self.render_broadcast_picker(cx), |el, p| el.child(p))
             .children(self.render_panels(window, cx))
             .when_some(toast, |el, t| el.child(t))
             .when_some(self.picker.as_ref(), |el, p| {
+                let hits = self.picker_hits();
+                let recent = self.recent_aliases();
                 el.child(picker::render(
                     p,
-                    &self.hosts,
-                    &self.picker_matches(),
-                    &self.recent_aliases(),
+                    &picker::Listed {
+                        hosts: &self.hosts,
+                        layouts: &self.layouts.items,
+                        hits: &hits,
+                        recent: &recent,
+                    },
                     window.viewport_size(),
                     &t,
                     cx,

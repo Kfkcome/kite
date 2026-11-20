@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io;
 #[cfg(unix)]
 use std::io::Write as _;
+use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::Mutex;
 
@@ -43,15 +44,27 @@ impl Drop for LocalPty {
 }
 
 impl LocalPty {
+    /// Spawns the user's default login shell at `cols` x `rows`, in `$HOME`.
+    ///
+    /// # Errors
+    /// Returns an error if the PTY cannot be created, its file descriptor cannot be cloned,
+    /// or the current platform is not Unix.
+    pub fn spawn(cols: u16, rows: u16) -> io::Result<Self> {
+        Self::spawn_in(cols, rows, None)
+    }
+
     /// Spawns the user's default login shell at `cols` x `rows`.
+    ///
+    /// `working_directory` is used when it is an existing directory. Anything else,
+    /// including `None` and a path that has gone away, starts in `$HOME`.
     ///
     /// # Errors
     /// Returns an error if the PTY cannot be created, its file descriptor cannot be cloned,
     /// or the current platform is not Unix.
     #[cfg(unix)]
-    pub fn spawn(cols: u16, rows: u16) -> io::Result<Self> {
+    pub fn spawn_in(cols: u16, rows: u16, working_directory: Option<&Path>) -> io::Result<Self> {
         let mut opts = Options {
-            working_directory: std::env::home_dir(),
+            working_directory: resolve_working_directory(working_directory),
             ..Options::default()
         };
         opts.env.insert("TERM".into(), "xterm-256color".into());
@@ -71,11 +84,28 @@ impl LocalPty {
     }
 
     #[cfg(not(unix))]
-    pub fn spawn(_cols: u16, _rows: u16) -> io::Result<Self> {
+    pub fn spawn_in(_cols: u16, _rows: u16, _working_directory: Option<&Path>) -> io::Result<Self> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "local terminal is only supported on Unix",
         ))
+    }
+
+    /// Process id of the PTY child, or `None` when this platform has no PTY or it is closed.
+    ///
+    /// On macOS the child is `login`. The shell `login` started is a child of that process.
+    #[must_use]
+    pub fn child_pid(&self) -> Option<u32> {
+        #[cfg(unix)]
+        {
+            let guard = self.pty.lock().unwrap_or_else(|e| e.into_inner());
+            guard.as_ref().map(|pty| pty.child().id())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self;
+            None
+        }
     }
 
     /// Clones the underlying PTY file descriptor for a blocking reader thread.
@@ -138,4 +168,38 @@ impl LocalPty {
 
     #[cfg(not(unix))]
     pub fn resize(&self, _cols: u16, _rows: u16) {}
+}
+
+/// Directory a new local shell should start in.
+///
+/// An empty path, a missing path, and a path that is not a directory all mean `$HOME`.
+#[must_use]
+pub fn resolve_working_directory(requested: Option<&Path>) -> Option<PathBuf> {
+    if let Some(dir) = requested
+        && !dir.as_os_str().is_empty()
+        && dir.is_dir()
+    {
+        return Some(dir.to_path_buf());
+    }
+    std::env::home_dir()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::resolve_working_directory;
+
+    #[test]
+    fn a_missing_or_empty_directory_falls_back_to_home() {
+        let home = std::env::home_dir();
+        assert_eq!(resolve_working_directory(None), home);
+        assert_eq!(resolve_working_directory(Some(Path::new(""))), home);
+        assert_eq!(
+            resolve_working_directory(Some(Path::new("/no/such/kite-cwd"))),
+            home
+        );
+        let dir = std::env::temp_dir();
+        assert_eq!(resolve_working_directory(Some(&dir)), Some(dir));
+    }
 }

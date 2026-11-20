@@ -95,6 +95,7 @@ fn item_label(name: &str) -> &'static str {
         "settings.json" => tr("Settings"),
         "keymap.json" => tr("Shortcuts"),
         "snippets.json" => tr("Snippets"),
+        "layouts.json" => tr("Layouts"),
         _ => tr("Vault"),
     }
 }
@@ -490,6 +491,7 @@ impl Shell {
             Err(e) => self.store_error = Some(e.to_string()),
         }
         self.refresh_hosts();
+        self.reload_layouts();
         self.restyle_tabs(cx);
         self.apply_option_as_meta(cx);
     }

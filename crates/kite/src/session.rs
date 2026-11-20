@@ -34,8 +34,10 @@ pub enum Launch {
     /// A connection that waits for Enter before it dials, so reopening many tabs at launch
     /// does not hit every server at once.
     SshIdle(ConnectSpec),
-    /// A local login shell attached to a PTY.
+    /// A local login shell attached to a PTY, started in `$HOME`.
     Local,
+    /// A restored local shell. The directory is used only when it still exists.
+    LocalIn(std::path::PathBuf),
 }
 
 /// Where the session connects, and the live connection once there is one.
@@ -44,6 +46,8 @@ struct Link {
     is_local: bool,
     handle: Option<SessionHandle>,
     local: Option<std::sync::Arc<kite_term::LocalPty>>,
+    /// Last directory a local shell was using. `None` for an SSH session.
+    cwd: Option<std::path::PathBuf>,
     /// Names of vault keys offered at login. They are looked up each time the session dials,
     /// so the spec never holds key material between connections.
     vault_keys: Vec<String>,
@@ -152,16 +156,26 @@ impl Session {
                 this.on_terminal_event(event, cx);
             });
             let idle = matches!(launch, Launch::SshIdle(_));
-            let is_local = matches!(launch, Launch::Local);
+            let is_local = matches!(launch, Launch::Local | Launch::LocalIn(_));
+            let requested = match &launch {
+                Launch::LocalIn(dir) => Some(dir.as_path()),
+                _ => None,
+            };
+            let cwd = if is_local {
+                kite_term::resolve_working_directory(requested)
+            } else {
+                None
+            };
             let spec = match launch {
                 Launch::Ssh(spec) | Launch::SshIdle(spec) => spec,
-                Launch::Local => ConnectSpec::default(),
+                Launch::Local | Launch::LocalIn(_) => ConnectSpec::default(),
             };
             let mut link = Link {
                 spec,
                 is_local,
                 handle: None,
                 local: None,
+                cwd,
                 vault_keys: auth.vault_keys,
                 password_command: auth.password_command,
                 sudo_command: auth.sudo_command,
@@ -232,7 +246,7 @@ impl Session {
     fn start(link: &mut Link, size: TermSize, cx: &mut Context<Self>) -> Task<()> {
         if link.is_local {
             link.handle = None;
-            let (local, task) = crate::session_local::spawn(size, cx);
+            let (local, task) = crate::session_local::spawn(size, link.cwd.as_deref(), cx);
             link.local = local;
             return task;
         }
@@ -695,6 +709,8 @@ impl Held {
 
 #[path = "session_actions.rs"]
 mod actions;
+#[path = "session_cwd.rs"]
+mod cwd;
 #[path = "session_vault.rs"]
 mod vault;
 

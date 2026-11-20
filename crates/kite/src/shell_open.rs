@@ -45,7 +45,7 @@ impl Shell {
 
     /// `tern <target>`: a `~/.ssh/config` alias or `user@host:port`.
     pub fn connect_target(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if target == "Local Terminal" || target == "本地终端" {
+        if crate::layouts::is_local_alias(target) {
             return self.open_local_terminal(window, cx);
         }
         // A saved connection's name wins, so `tern web-01` and the picker's typed name open the
@@ -77,6 +77,7 @@ impl Shell {
         self.tabs.push(Tab {
             id: self.next_tab,
             title: None,
+            layout_id: None,
             tree: split::Node::Leaf(pane.id),
             focused: pane.id,
             panes: vec![pane],
@@ -98,7 +99,7 @@ impl Shell {
         let launch = match launch {
             Launch::Ssh(spec) => Launch::Ssh(with_dev_known_hosts(spec)),
             Launch::SshIdle(spec) => Launch::SshIdle(with_dev_known_hosts(spec)),
-            Launch::Local => Launch::Local,
+            Launch::Local | Launch::LocalIn(_) => launch,
         };
         let theme = self.terminal_theme(alias);
         let auth = self.auth_for(alias);
@@ -118,6 +119,10 @@ impl Shell {
             v.set_option_as_meta(meta);
             v.set_options(options, cx);
         });
+        let cwd = session
+            .read(cx)
+            .local_cwd()
+            .map(std::path::Path::to_path_buf);
         let bell = self.on_bell(&session, window, cx);
         // A tab that is not in front can drop without anyone seeing its terminal; say so, with
         // a way to get to it.
@@ -161,6 +166,7 @@ impl Shell {
         Pane {
             id: self.next_pane,
             alias: alias.to_owned(),
+            cwd,
             session,
             _repaint: repaint,
             _bell: bell,
@@ -182,6 +188,8 @@ impl Shell {
             let focus = tab.session().read(cx).view.focus_handle(cx);
             window.focus(&focus, cx);
         }
+        // After `tab` is released: this needs `&mut self` and only queues a background read.
+        self.refresh_local_cwds(cx);
         self.apply_broadcast(cx);
         cx.notify();
     }

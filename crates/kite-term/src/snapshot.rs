@@ -1,8 +1,6 @@
 //! Cell and cursor snapshot types shared between `terminal` and `element`.
 
-use alacritty_terminal::vte::ansi::{
-    Color as AnsiColor, CursorShape, NamedColor, Rgb as AnsiRgb,
-};
+use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, NamedColor, Rgb as AnsiRgb};
 
 use crate::search::SearchMark;
 

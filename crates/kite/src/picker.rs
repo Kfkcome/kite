@@ -1,7 +1,8 @@
 // Adapted from zeron crates/ui/src/shell/command_palette.rs (palette card, header, footer,
 // overlay) and crates/engine/src/repos.rs (nucleo ranking) (MIT).
-//! ⌘K host picker: type to fuzzy-filter tern's connections, Enter connects. An empty query
-//! lists recents first; text that matches nothing connects as a typed target.
+//! ⌘K picker: type to fuzzy-filter connections and saved layouts. Enter connects a host or
+//! opens a layout. An empty query lists recents first, then layouts; text that matches
+//! nothing connects as a typed target.
 
 use crate::hover::HoverFade as _;
 use gpui::prelude::FluentBuilder;
@@ -131,6 +132,48 @@ fn includes_local(query: &str) -> bool {
     q.is_empty() || !rank_labels(q, &["local terminal 本地终端 zsh bash shell"]).is_empty()
 }
 
+/// One picker row: a saved host, or a saved layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hit {
+    Host(usize),
+    Layout(usize),
+}
+
+/// Hosts and layouts the picker lists. An empty query lists recent hosts first, then the
+/// other hosts, then every layout. A query ranks a name match ahead of an address or leaf.
+pub fn hits(
+    query: &str,
+    host_names: &[&str],
+    host_labels: &[String],
+    layout_names: &[&str],
+    layout_labels: &[String],
+    recent: &[&str],
+) -> Vec<Hit> {
+    if query.trim().is_empty() {
+        let mut out: Vec<Hit> = order(query, host_labels, host_names, recent)
+            .into_iter()
+            .map(Hit::Host)
+            .collect();
+        out.extend((0..layout_names.len()).map(Hit::Layout));
+        return out;
+    }
+    let hosts = host_names.len();
+    let mut names: Vec<&str> = host_names.to_vec();
+    names.extend_from_slice(layout_names);
+    let mut labels: Vec<&str> = host_labels.iter().map(String::as_str).collect();
+    labels.extend(layout_labels.iter().map(String::as_str));
+    rank_named(query, &names, &labels)
+        .into_iter()
+        .map(|ix| {
+            if ix < hosts {
+                Hit::Host(ix)
+            } else {
+                Hit::Layout(ix - hosts)
+            }
+        })
+        .collect()
+}
+
 /// Fuzzy-ranks any labels: indices of the matches, best first, input order on an empty
 /// query or a tie.
 pub fn rank_labels<S: AsRef<str>>(query: &str, labels: &[S]) -> Vec<usize> {
@@ -165,11 +208,11 @@ impl Shell {
             return;
         }
         cx.stop_propagation();
-        let matches = self.picker_matches();
+        let hits = self.picker_hits();
         let query = self.picker_query();
         let show_local = includes_local(&query);
         let local_offset = usize::from(show_local);
-        let total = local_offset + matches.len();
+        let total = local_offset + hits.len();
         let Some(picker) = self.picker_mut() else {
             return;
         };
@@ -189,17 +232,21 @@ impl Shell {
                 picker.active = 0;
             }
             Key::Pick => {
-                if show_local && picker.active == 0 {
+                let active = picker.active;
+                if show_local && active == 0 {
                     self.close_picker(window, cx);
                     self.open_local_terminal(window, cx);
                     return;
                 }
-                let chosen = matches
-                    .get(picker.active.saturating_sub(local_offset))
-                    .map(|&ix| self.hosts()[ix].clone());
+                let chosen = hits.get(active.saturating_sub(local_offset)).copied();
                 self.close_picker(window, cx);
                 match chosen {
-                    Some(host) => self.connect_host(&host, window, cx),
+                    Some(Hit::Host(ix)) => {
+                        if let Some(host) = self.hosts().get(ix).cloned() {
+                            self.connect_host(&host, window, cx);
+                        }
+                    }
+                    Some(Hit::Layout(ix)) => self.open_layout_at(ix, window, cx),
                     // Nothing listed matches: treat the text as a target, so `user@host:port`
                     // and `~/.ssh/config` aliases that were never imported still connect.
                     None if !query.trim().is_empty() => {
@@ -221,18 +268,30 @@ pub(crate) fn results_height(viewport: Size<Pixels>) -> f32 {
     (f32::from(viewport.height) - 180.0).clamp(100.0, 360.0)
 }
 
+/// The rows an open picker draws, besides its query.
+pub struct Listed<'a> {
+    pub hosts: &'a [HostEntry],
+    pub layouts: &'a [crate::layouts::SavedLayout],
+    pub hits: &'a [Hit],
+    pub recent: &'a [String],
+}
+
 pub fn render(
     picker: &Picker,
-    hosts: &[HostEntry],
-    matches: &[usize],
-    recent: &[String],
+    listed: &Listed<'_>,
     viewport: Size<Pixels>,
     t: &Theme,
     cx: &mut Context<Shell>,
 ) -> AnyElement {
+    let Listed {
+        hosts,
+        layouts,
+        hits,
+        recent,
+    } = listed;
     let show_local = includes_local(&picker.query);
     let local_offset = usize::from(show_local);
-    let total = local_offset + matches.len();
+    let total = local_offset + hits.len();
     let active = picker.active.min(total.saturating_sub(1));
     let local_row = show_local.then(|| {
         div()
@@ -273,11 +332,9 @@ pub fn render(
                     .child(tr("Open a local shell")),
             )
     });
-    let rows = matches.iter().enumerate().map(|(i, &ix)| {
+    let rows = hits.iter().enumerate().map(|(i, hit)| {
         let row = i + local_offset;
-        let host = &hosts[ix];
-        let target = host.clone();
-        div()
+        let frame = div()
             .id(("pick", row))
             .mx(px(4.))
             .px(px(12.))
@@ -293,30 +350,66 @@ pub fn render(
                 gpui::transparent_black(),
                 t.row_active,
             )
-            .when(row == active, |el| el.bg(t.row_active))
-            .on_click(cx.listener(move |shell, _, window, cx| {
-                shell.close_picker(window, cx);
-                shell.connect_host(&target, window, cx);
-            }))
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(host.alias.clone())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(t.muted)
-                    .child(SharedString::from(sidebar::address(host))),
-            )
-            .when(
-                picker.query.is_empty() && recent.contains(&host.alias),
-                |el| el.child(div().text_xs().text_color(t.faint).child(tr("Recent"))),
-            )
+            .when(row == active, |el| el.bg(t.row_active));
+        match *hit {
+            Hit::Host(ix) => {
+                let Some(host) = hosts.get(ix) else {
+                    return frame;
+                };
+                let target = host.clone();
+                let alias = host.alias.clone();
+                let address = sidebar::address(host);
+                frame
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        shell.close_picker(window, cx);
+                        shell.connect_host(&target, window, cx);
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(SharedString::from(alias.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(t.muted)
+                            .child(SharedString::from(address)),
+                    )
+                    .when(picker.query.is_empty() && recent.contains(&alias), |el| {
+                        el.child(div().text_xs().text_color(t.faint).child(tr("Recent")))
+                    })
+            }
+            Hit::Layout(ix) => {
+                let name = layouts
+                    .get(ix)
+                    .map(|layout| layout.name.clone())
+                    .unwrap_or_default();
+                frame
+                    .on_click(cx.listener(move |shell, _, window, cx| {
+                        shell.close_picker(window, cx);
+                        shell.open_layout_at(ix, window, cx);
+                    }))
+                    .child(
+                        crate::icons::icon(crate::icons::LAYOUT)
+                            .size(px(14.))
+                            .text_color(t.accent),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(SharedString::from(name)),
+                    )
+                    .child(div().text_xs().text_color(t.faint).child(tr("Layout")))
+            }
+        }
     });
     let query: SharedString = if picker.query.is_empty() {
         tr("Connect to a host…").into()
@@ -375,8 +468,12 @@ pub fn render(
                 .gap(px(2.))
                 .children(local_row)
                 .children(rows)
-                .when(matches.is_empty() && !show_local, |el| {
-                    if empty_state::picker_is_empty(&picker.query, hosts.len(), matches.len()) {
+                .when(hits.is_empty() && !show_local, |el| {
+                    if empty_state::picker_is_empty(
+                        &picker.query,
+                        hosts.len() + layouts.len(),
+                        hits.len(),
+                    ) {
                         return el.child(
                             div().py(px(24.)).child(
                                 empty_state::view(t, empty_state::HOSTS, tr("No hosts yet."))
@@ -456,7 +553,7 @@ pub(crate) fn hint(keys: &'static str, label: &'static str, t: &Theme) -> impl I
 
 #[cfg(test)]
 mod tests {
-    use super::{order, rank};
+    use super::{Hit, hits, order, rank};
     use kite_ssh::HostEntry;
 
     fn host(alias: &str, host_name: &str) -> HostEntry {
@@ -519,5 +616,63 @@ mod tests {
         assert_eq!(order("", &labels, &aliases, &[]), vec![0, 1, 2, 3]);
         // A query ignores recency and ranks.
         assert_eq!(order("stb", &labels, &aliases, &recent), vec![1]);
+    }
+
+    #[test]
+    fn layouts_match_by_name_and_by_leaf_and_follow_hosts_when_idle() {
+        let host_names = ["grape", "db"];
+        let host_labels = vec!["grape 203.0.113.40".into(), "db 10.0.0.1".into()];
+        let layout_names = ["生产监控", "notes"];
+        let layout_labels = vec!["生产监控 prod staging".into(), "notes local".into()];
+        let recent = ["db"];
+        assert_eq!(
+            hits(
+                "",
+                &host_names,
+                &host_labels,
+                &layout_names,
+                &layout_labels,
+                &recent
+            ),
+            vec![Hit::Host(1), Hit::Host(0), Hit::Layout(0), Hit::Layout(1)]
+        );
+        assert_eq!(
+            hits(
+                "生产监控",
+                &host_names,
+                &host_labels,
+                &layout_names,
+                &layout_labels,
+                &recent
+            ),
+            vec![Hit::Layout(0)]
+        );
+        assert_eq!(
+            hits(
+                "staging",
+                &host_names,
+                &host_labels,
+                &layout_names,
+                &layout_labels,
+                &recent
+            ),
+            vec![Hit::Layout(0)]
+        );
+        // A host named for the query outranks a layout that only mentions it in a leaf.
+        let host_names = ["prod"];
+        let host_labels = vec!["prod 10.0.0.1".into()];
+        let layout_names = ["ops"];
+        let layout_labels = vec!["ops prod-backup".into()];
+        assert_eq!(
+            hits(
+                "prod",
+                &host_names,
+                &host_labels,
+                &layout_names,
+                &layout_labels,
+                &[]
+            ),
+            vec![Hit::Host(0), Hit::Layout(0)]
+        );
     }
 }

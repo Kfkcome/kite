@@ -22,6 +22,7 @@ use gpui::{
 };
 
 use super::*;
+use crate::i18n::tr;
 
 impl Shell {
     /// The scheme a host's tabs use: its own, else the default, else zeron's (`None`).
@@ -293,6 +294,115 @@ impl Shell {
             .when(!terminal_glass, |el| {
                 el.bg(self.tile_tint(panel).unwrap_or(panel))
             })
+    }
+}
+
+impl Shell {
+    /// The main panel's content: the active tab's panes, or the empty view, which carries the
+    /// wallpaper `hero` (the picture filling the tile) under its text.
+    pub(super) fn panel_content(
+        &self,
+        hero: Option<AnyElement>,
+        panel_bg: gpui::Hsla,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some(tab) = self.tabs.get(self.active) {
+            return self.render_panes(tab, cx);
+        }
+        let t = self.theme;
+        let keymap = cx.global::<crate::keymap::Keymap>();
+        let hint = |id: crate::keymap::ShortcutId, label: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .min_w(px(44.))
+                        .flex()
+                        .justify_end()
+                        .text_sm()
+                        .text_color(t.text)
+                        .child(gpui::SharedString::from(crate::keymap::badge(
+                            keymap.combo(id),
+                        ))),
+                )
+                .child(div().text_sm().text_color(t.muted).child(label))
+        };
+        let (title, detail): (gpui::SharedString, Option<gpui::SharedString>) = match &self.error {
+            Some(e) => ("Could not open that".into(), Some(e.clone().into())),
+            None if self.hosts.is_empty() => (
+                "No hosts yet".into(),
+                Some("Add a connection, or copy your hosts over from ~/.ssh/config".into()),
+            ),
+            None => ("No session open".into(), None),
+        };
+        // Over the picture the text sits below its upper part, on a plate of the panel colour,
+        // so it never depends on what the picture holds.
+        let on_picture = hero.is_some();
+        div()
+            .size_full()
+            .relative()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(16.))
+            .children(hero)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(4.))
+                    .when(on_picture, |el| plate(el, panel_bg))
+                    .child(div().text_size(px(15.)).text_color(t.text).child(title))
+                    .when_some(detail, |el, d| {
+                        el.child(div().text_sm().text_color(t.muted).child(d))
+                    }),
+            )
+            .when(self.hosts.is_empty(), |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(
+                            super::connections_ui::button(
+                                "empty-main-new",
+                                crate::i18n::tr("New connection"),
+                                true,
+                                &t,
+                            )
+                            .on_click(cx.listener(|s, _, w, cx| s.open_form(None, None, w, cx))),
+                        )
+                        .child(
+                            super::connections_ui::button(
+                                "empty-main-import",
+                                crate::i18n::tr("Import from ~/.ssh/config…"),
+                                false,
+                                &t,
+                            )
+                            .on_click(cx.listener(|s, _, w, cx| s.open_import(w, cx))),
+                        ),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .when(on_picture, |el| plate(el, panel_bg))
+                    .child(hint(crate::keymap::ShortcutId::HostPicker, "Find a host"))
+                    .child(hint(
+                        crate::keymap::ShortcutId::NewConnection,
+                        crate::i18n::tr("New connection"),
+                    ))
+                    .child(hint(
+                        crate::keymap::ShortcutId::Settings,
+                        crate::i18n::tr("Settings"),
+                    )),
+            )
+            .into_any_element()
     }
 }
 

@@ -5,6 +5,9 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::settings::Language;
 
+#[path = "i18n_extra.rs"]
+mod extra;
+
 /// 0 is English, 1 is Chinese. Set from settings before the window draws.
 static LANG: AtomicU8 = AtomicU8::new(0);
 
@@ -42,6 +45,7 @@ fn lookup(chinese: bool, en: &'static str) -> &'static str {
         return en;
     }
     ZH.iter()
+        .chain(extra::PAIRS.iter())
         .find(|(key, _)| *key == en)
         .map(|(_, text)| *text)
         .unwrap_or(en)
@@ -755,8 +759,8 @@ mod tests {
     #[test]
     fn keys_are_unique_and_placeholders_match() {
         let mut seen = std::collections::BTreeSet::new();
-        for (en, zh) in ZH {
-            assert!(seen.insert(*en), "duplicate {en}");
+        for &(en, zh) in ZH.iter().chain(extra::PAIRS.iter()) {
+            assert!(seen.insert(en), "duplicate {en}");
             assert_eq!(en.matches("{}").count(), zh.matches("{}").count(), "{en}");
             assert!(!zh.is_empty(), "{en}");
         }

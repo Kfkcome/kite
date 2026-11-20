@@ -15,6 +15,8 @@ mod indicator;
 mod keeper;
 mod keeper_gate;
 mod keymap;
+mod layouts;
+mod local_cwd;
 mod login;
 mod password_command;
 mod picker;

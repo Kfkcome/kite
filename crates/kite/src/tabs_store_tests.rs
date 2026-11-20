@@ -25,6 +25,7 @@ fn tab(alias: &str, title: Option<&str>, focused: usize, tree: SavedNode) -> Sav
         title: title.map(str::to_owned),
         tree: Some(tree),
         focused,
+        layout_id: None,
     }
 }
 
@@ -124,6 +125,54 @@ fn an_old_file_without_a_tree_loads_as_one_pane_and_saves_as_version_1() {
 }
 
 #[test]
+fn layout_id_round_trips_and_is_omitted_when_absent() {
+    let mut linked = tab("prod", None, 0, leaf("prod"));
+    linked.layout_id = Some("lay-1".into());
+    let dir = tempfile::tempdir().unwrap();
+    saved(0, vec![linked.clone()]).save(dir.path()).unwrap();
+    assert_eq!(
+        ready(dir.path()).tabs[0].layout_id.as_deref(),
+        Some("lay-1")
+    );
+    let text = std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
+    assert!(text.contains("\"layout_id\": \"lay-1\""), "{text}");
+
+    saved(0, vec![tab("prod", None, 0, leaf("prod"))])
+        .save(dir.path())
+        .unwrap();
+    let text = std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
+    assert!(!text.contains("layout_id"), "{text}");
+}
+
+#[test]
+fn a_local_directory_round_trips_and_an_old_leaf_without_one_stays_empty() {
+    let mut local = leaf("Local Terminal");
+    local.cwd = Some("/tmp/work".into());
+    let dir = tempfile::tempdir().unwrap();
+    saved(0, vec![tab("Local Terminal", None, 0, local.clone())])
+        .save(dir.path())
+        .unwrap();
+    let loaded = ready(dir.path());
+    assert_eq!(
+        loaded.tabs[0].tree.as_ref().unwrap().cwd.as_deref(),
+        Some("/tmp/work")
+    );
+    let text = std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
+    assert!(text.contains("\"cwd\": \"/tmp/work\""), "{text}");
+
+    let kept = loaded.sanitize(|_| true);
+    assert_eq!(
+        kept.tabs[0].tree.as_ref().unwrap().cwd.as_deref(),
+        Some("/tmp/work")
+    );
+
+    saved(0, vec![ssh("prod")]).save(dir.path()).unwrap();
+    let text = std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
+    assert!(!text.contains("cwd"), "{text}");
+    assert_eq!(ready(dir.path()).tabs[0].tree.as_ref().unwrap().cwd, None);
+}
+
+#[test]
 fn an_older_version_is_migrated_in_memory_and_not_rewritten() {
     let original = r#"{"version":0,"tabs":[{"kind":"ssh","alias":"prod"}],"active":0}"#;
     let dir = tempfile::tempdir().unwrap();
@@ -200,6 +249,7 @@ fn invalid_ratios_axes_and_branches_degrade() {
 
     let one_sided = SavedNode {
         alias: None,
+        cwd: None,
         axis: Some(SavedAxis::Column),
         ratio: Some(0.99),
         first: None,
@@ -210,10 +260,12 @@ fn invalid_ratios_axes_and_branches_degrade() {
 
     let empty = SavedNode {
         alias: None,
+        cwd: None,
         axis: Some(SavedAxis::Row),
         ratio: Some(0.4),
         first: Some(Box::new(SavedNode {
             alias: None,
+            cwd: None,
             axis: None,
             ratio: None,
             first: None,

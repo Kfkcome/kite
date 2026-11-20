@@ -17,7 +17,7 @@ mod view;
 pub use config::TerminalTheme;
 pub use config::{CursorStyleSetting, TerminalOptions};
 pub use links::Link;
-pub use local_pty::LocalPty;
+pub use local_pty::{LocalPty, resolve_working_directory};
 pub use search::SearchMark;
 pub use snapshot::{CellColor, CellSnapshot, CursorSnapshot};
 pub use terminal::{SCROLLBACK_LINES, Terminal, TerminalEvent};

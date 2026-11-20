@@ -79,8 +79,7 @@ impl RowShapeCache {
         let fonts = self
             .fonts
             .get_or_insert_with(|| font_variants(&mono_font(theme)));
-        let (segments, boxes) =
-            shape_row(row, theme, fonts, font_size, block_cursor_col, window);
+        let (segments, boxes) = shape_row(row, theme, fonts, font_size, block_cursor_col, window);
         let shaped = Arc::new(RowShaped { segments, boxes });
         self.entries.insert(
             key,

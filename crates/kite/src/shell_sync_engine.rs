@@ -13,22 +13,25 @@ use kite_vault::{Vault, VaultError};
 use serde::{Deserialize, Serialize};
 
 /// The files that travel besides the vault, by their name in the settings directory.
-/// `snippets.json` belongs to the snippets store; an older build's `decode` drops the name.
-const SYNCED: [&str; 4] = [
+/// `snippets.json` and `layouts.json` belong to their stores; an older build's `decode` drops
+/// a name it does not know.
+const SYNCED: [&str; 5] = [
     "hosts.json",
     "settings.json",
     "keymap.json",
     "snippets.json",
+    "layouts.json",
 ];
 const VAULT_FILE: &str = "vault.age";
 const HOSTS_FILE: &str = "hosts.json";
 const STATE_FILE: &str = "sync.json";
 /// Every file that travels, each merged on its own.
-const ITEMS: [&str; 5] = [
+const ITEMS: [&str; 6] = [
     "hosts.json",
     "settings.json",
     "keymap.json",
     "snippets.json",
+    "layouts.json",
     VAULT_FILE,
 ];
 

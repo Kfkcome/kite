@@ -93,6 +93,7 @@ icon_assets!(
     (HOME, "home"),
     (UPLOAD, "archive-up-minimalistic"),
     (FILE_CODE, "file-code"),
+    (LAYOUT, "layout"),
 );
 
 pub fn icon(path: &'static str) -> Svg {

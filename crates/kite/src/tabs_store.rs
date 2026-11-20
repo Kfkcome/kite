@@ -12,9 +12,10 @@
 //! `version` is written as 1. A missing version is 1, so a file from before splits still loads
 //! as one pane per tab. `alias` is the focused leaf, which is all an older kite reads. `tree`
 //! is optional; without it the tab is that one pane. Leaves are aliases, and the same host may
-//! appear twice. `focused` indexes those leaves from left to right, then top to bottom. Every
-//! split stores `axis` (`row` or `column`) and `ratio` (the share given to `first`). Pane ids
-//! are not stored. A newer version, or a file that does not parse, is left untouched.
+//! appear twice. A local leaf may also store `cwd`, the directory that shell was in; it is
+//! omitted when unknown. `focused` indexes those leaves from left to right, then top to bottom.
+//! Every split stores `axis` (`row` or `column`) and `ratio` (the share given to `first`). Pane
+//! ids are not stored. A newer version, or a file that does not parse, is left untouched.
 
 use std::io;
 use std::path::Path;
@@ -76,6 +77,9 @@ impl<'de> Deserialize<'de> for SavedAxis {
 pub struct SavedNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// Directory a local shell was in. Absent for SSH panes and for saved layouts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub axis: Option<SavedAxis>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,8 +93,14 @@ pub struct SavedNode {
 impl SavedNode {
     /// One pane, opened as `alias`.
     pub fn leaf(alias: impl Into<String>) -> Self {
+        Self::with_cwd(alias, None)
+    }
+
+    /// One pane, opened as `alias`, with the local shell's directory when there is one.
+    pub fn with_cwd(alias: impl Into<String>, cwd: Option<String>) -> Self {
         Self {
             alias: Some(alias.into()),
+            cwd: cwd.filter(|dir| !dir.is_empty()),
             axis: None,
             ratio: None,
             first: None,
@@ -102,6 +112,7 @@ impl SavedNode {
     pub fn split(axis: SavedAxis, ratio: f32, first: Self, second: Self) -> Self {
         Self {
             alias: None,
+            cwd: None,
             axis: Some(axis),
             ratio: Some(ratio),
             first: Some(Box::new(first)),
@@ -109,12 +120,27 @@ impl SavedNode {
         }
     }
 
+    /// Drops every local directory. Layout files are copied between machines, so they
+    /// do not carry a path that only exists on this one.
+    #[must_use]
+    pub fn without_cwd(mut self) -> Self {
+        self.cwd = None;
+        if let Some(first) = self.first.take() {
+            self.first = Some(Box::new(first.without_cwd()));
+        }
+        if let Some(second) = self.second.take() {
+            self.second = Some(Box::new(second.without_cwd()));
+        }
+        self
+    }
+
     /// A split has children. A leaf is an alias and nothing else.
     pub(crate) fn is_split(&self) -> bool {
         self.first.is_some() || self.second.is_some()
     }
 
-    fn aliases(&self) -> Vec<String> {
+    /// Leaves from left to right, then top to bottom.
+    pub fn aliases(&self) -> Vec<String> {
         if self.is_split() {
             let mut all = self
                 .first
@@ -153,6 +179,9 @@ pub struct SavedTab {
     /// Which leaf has the keyboard, in [`SavedNode::aliases`] order.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub focused: usize,
+    /// The saved layout this tab updates, when it was opened or saved as one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_id: Option<String>,
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -368,13 +397,15 @@ fn sanitize_tab(tab: SavedTab, keep: &impl Fn(&str) -> bool) -> Option<SavedTab>
         title: tab.title,
         tree: Some(tree),
         focused,
+        layout_id: tab.layout_id,
     })
 }
 
 /// Clamps ratios, turns an unknown axis into a row, and collapses a split that lost a side.
 fn repair(node: SavedNode) -> Option<SavedNode> {
     if !node.is_split() {
-        return node.alias.map(SavedNode::leaf);
+        let cwd = node.cwd;
+        return node.alias.map(|alias| SavedNode::with_cwd(alias, cwd));
     }
     // A missing side collapses like `Node::remove`: the sibling takes the space.
     let first = node.first.and_then(|child| repair(*child));
@@ -407,10 +438,11 @@ fn drop_flags(node: SavedNode, kept: &[bool], cursor: &mut usize) -> Option<Save
             (None, None) => None,
         };
     }
+    let cwd = node.cwd;
     let alias = node.alias?;
     let keep = kept.get(*cursor).copied().unwrap_or(false);
     *cursor += 1;
-    keep.then_some(SavedNode::leaf(alias))
+    keep.then_some(SavedNode::with_cwd(alias, cwd))
 }
 
 #[cfg(test)]

@@ -36,9 +36,7 @@ impl StatusBar {
     pub(super) fn new(shell: WeakEntity<Shell>, cx: &mut Context<Self>) -> Self {
         let clock = cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor()
-                    .timer(Duration::from_secs(1))
-                    .await;
+                cx.background_executor().timer(Duration::from_secs(1)).await;
                 let alive = this.update(cx, |bar, cx| bar.tick(cx));
                 if alive.is_err() {
                     break;

@@ -307,6 +307,7 @@ impl DetachTab for Tab {
         Self {
             id,
             title: None,
+            layout_id: None,
             tree: Node::Leaf(focused),
             focused,
             panes: vec![pane],

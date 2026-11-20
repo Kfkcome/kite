@@ -45,10 +45,11 @@ pub enum ShortcutId {
     FontSmaller,
     FontReset,
     FillPassword,
+    SaveLayout,
 }
 
 impl ShortcutId {
-    pub const ALL: [ShortcutId; 20] = [
+    pub const ALL: [ShortcutId; 21] = [
         ShortcutId::HostPicker,
         ShortcutId::SearchHosts,
         ShortcutId::Snippets,
@@ -69,6 +70,7 @@ impl ShortcutId {
         ShortcutId::FontSmaller,
         ShortcutId::FontReset,
         ShortcutId::FillPassword,
+        ShortcutId::SaveLayout,
     ];
 
     pub fn label(self) -> &'static str {
@@ -93,6 +95,7 @@ impl ShortcutId {
             ShortcutId::FontSmaller => tr("Smaller text"),
             ShortcutId::FontReset => tr("Default text size"),
             ShortcutId::FillPassword => tr("Fill password"),
+            ShortcutId::SaveLayout => tr("Save layout"),
         }
     }
 
@@ -118,6 +121,7 @@ impl ShortcutId {
             ShortcutId::FontSmaller => "cmd--",
             ShortcutId::FontReset => "cmd-0",
             ShortcutId::FillPassword => "cmd-\\",
+            ShortcutId::SaveLayout => "cmd-s",
         }
     }
 
@@ -144,6 +148,7 @@ impl ShortcutId {
             ShortcutId::FontReset => "ctrl-0",
             // Ctrl+\ alone is SIGQUIT in a terminal.
             ShortcutId::FillPassword => "ctrl-shift-\\",
+            ShortcutId::SaveLayout => "ctrl-shift-s",
         }
     }
 
@@ -183,6 +188,7 @@ impl ShortcutId {
             ShortcutId::FontSmaller => Box::new(DecreaseFontSize),
             ShortcutId::FontReset => Box::new(ResetFontSize),
             ShortcutId::FillPassword => Box::new(crate::shell::FillPassword),
+            ShortcutId::SaveLayout => Box::new(crate::shell::SaveLayout),
         }
     }
 }

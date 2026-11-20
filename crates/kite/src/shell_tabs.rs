@@ -13,6 +13,16 @@ use crate::tabs_store::{
 };
 use crate::text_input::{InputColors, TextInput};
 
+/// One saved tree opened as a new tab.
+pub(crate) struct Spawn<'a> {
+    pub node: &'a SavedNode,
+    pub focused: usize,
+    pub title: Option<String>,
+    pub layout_id: Option<String>,
+    /// Connect at once. Startup restore passes false so every pane waits for Enter.
+    pub dial: bool,
+}
+
 /// A title being edited: which tab, and the field holding the text.
 pub(super) struct Rename {
     pub ix: usize,
@@ -226,13 +236,41 @@ impl Shell {
         let Some(node) = saved_layout(saved) else {
             return false;
         };
+        self.spawn_tree(
+            Spawn {
+                node: &node,
+                focused: saved.focused,
+                title: saved.title.clone(),
+                layout_id: saved.layout_id.clone(),
+                dial: false,
+            },
+            window,
+            cx,
+        )
+    }
+
+    /// Opens `node` as a new tab. `dial` connects at once; startup restore passes false so
+    /// every pane waits for Enter. False when every leaf was skipped.
+    pub(super) fn spawn_tree(
+        &mut self,
+        spawn: Spawn<'_>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Spawn {
+            node,
+            focused,
+            title,
+            layout_id,
+            dial,
+        } = spawn;
         let mut opened = Vec::new();
-        self.open_saved_leaves(&node, &mut opened, window, cx);
+        self.open_saved_leaves(node, dial, &mut opened, window, cx);
         let kept: Vec<bool> = opened.iter().map(|pane| pane.is_some()).collect();
-        let Some(focus) = focus_among(saved.focused, &kept) else {
+        let Some(focus) = focus_among(focused, &kept) else {
             return false;
         };
-        let Some((tree, panes)) = assemble(&node, &mut opened.into_iter()) else {
+        let Some((tree, panes)) = assemble(node, &mut opened.into_iter()) else {
             return false;
         };
         let Some(&focused) = tree.leaves().get(focus) else {
@@ -241,7 +279,8 @@ impl Shell {
         self.next_tab += 1;
         self.tabs.push(Tab {
             id: self.next_tab,
-            title: saved.title.clone(),
+            title,
+            layout_id,
             tree,
             focused,
             panes,
@@ -252,42 +291,57 @@ impl Shell {
     fn open_saved_leaves(
         &mut self,
         node: &SavedNode,
+        dial: bool,
         out: &mut Vec<Option<Pane>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if node.is_split() {
             if let Some(first) = &node.first {
-                self.open_saved_leaves(first, out, window, cx);
+                self.open_saved_leaves(first, dial, out, window, cx);
             }
             if let Some(second) = &node.second {
-                self.open_saved_leaves(second, out, window, cx);
+                self.open_saved_leaves(second, dial, out, window, cx);
             }
             return;
         }
         let Some(alias) = node.alias.as_deref() else {
             return;
         };
-        out.push(self.open_idle_pane(alias, window, cx));
+        out.push(self.open_leaf_pane(alias, node.cwd.as_deref(), dial, window, cx));
     }
 
-    /// A connection that does not dial yet. `None` when this host cannot be opened.
-    fn open_idle_pane(
+    /// One pane. `dial` uses [`Launch::Ssh`]; otherwise the pane waits for Enter.
+    /// A local pane uses `cwd` only when that directory is still there.
+    fn open_leaf_pane(
         &mut self,
         alias: &str,
+        cwd: Option<&str>,
+        dial: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Pane> {
         if is_local_alias(alias) {
             let label = crate::i18n::tr("Local Terminal");
-            return Some(self.make_pane(Launch::Local, label, window, cx));
+            let launch = match crate::local_cwd::restored_directory(cwd) {
+                Some(dir) => Launch::LocalIn(dir),
+                None => Launch::Local,
+            };
+            return Some(self.make_pane(launch, label, window, cx));
         }
         let spec = match self.hosts.iter().find(|host| host.alias == alias) {
             Some(host) => ConnectSpec::from_host_entry(host),
             None => ConnectSpec::parse(alias),
         };
         match spec {
-            Ok(spec) => Some(self.make_pane(Launch::SshIdle(spec), alias, window, cx)),
+            Ok(spec) => {
+                let launch = if dial {
+                    Launch::Ssh(spec)
+                } else {
+                    Launch::SshIdle(spec)
+                };
+                Some(self.make_pane(launch, alias, window, cx))
+            }
             Err(e) => {
                 tracing::warn!(alias, error = %e, "tab_restore_skipped");
                 None
@@ -295,16 +349,28 @@ impl Shell {
         }
     }
 
-    /// In the host list, or a target `ConnectSpec::parse` accepts. Anything else is dropped.
+    /// In the host list, a local terminal, or a target `ConnectSpec::parse` accepts.
     fn alias_keepable(&self, alias: &str) -> bool {
-        is_local_alias(alias)
-            || self.hosts.iter().any(|host| host.alias == alias)
-            || ConnectSpec::parse(alias).is_ok()
+        crate::layouts::alias_openable(alias, |name| {
+            self.hosts.iter().any(|host| host.alias == name)
+        })
+    }
+
+    /// Tab `ix` as a layout: tree, focused leaf, and custom title.
+    pub(super) fn captured_layout(&self, ix: usize) -> Option<(SavedNode, usize, Option<String>)> {
+        let tab = self.tabs.get(ix)?;
+        let leaves = tab.tree.leaves();
+        let focused = leaves.iter().position(|id| *id == tab.focused).unwrap_or(0);
+        Some((
+            saved_node(&tab.tree, &tab.panes),
+            focused,
+            tab.title.clone(),
+        ))
     }
 }
 
 fn is_local_alias(alias: &str) -> bool {
-    alias == "Local Terminal" || alias == "本地终端"
+    crate::layouts::is_local_alias(alias)
 }
 
 fn saved_tab(tab: &Tab) -> SavedTab {
@@ -317,6 +383,7 @@ fn saved_tab(tab: &Tab) -> SavedTab {
         title: tab.title.clone(),
         tree: Some(saved_node(&tab.tree, &tab.panes)),
         focused,
+        layout_id: tab.layout_id.clone(),
     }
 }
 
@@ -333,12 +400,14 @@ fn saved_layout(saved: &SavedTab) -> Option<SavedNode> {
 fn saved_node(node: &Node, panes: &[Pane]) -> SavedNode {
     match node {
         Node::Leaf(id) => {
-            let alias = panes
-                .iter()
-                .find(|pane| pane.id == *id)
-                .map(|pane| pane.alias.clone())
-                .unwrap_or_default();
-            SavedNode::leaf(alias)
+            let pane = panes.iter().find(|pane| pane.id == *id);
+            let alias = pane.map(|pane| pane.alias.clone()).unwrap_or_default();
+            let cwd = pane.and_then(|pane| {
+                pane.cwd
+                    .as_ref()
+                    .and_then(|path| path.to_str().map(str::to_owned))
+            });
+            SavedNode::with_cwd(alias, cwd)
         }
         Node::Split {
             axis,

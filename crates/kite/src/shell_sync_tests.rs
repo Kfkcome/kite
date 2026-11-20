@@ -2,6 +2,23 @@
 use super::*;
 
 #[test]
+fn layouts_json_is_part_of_the_sync() {
+    assert!(SYNCED.contains(&"layouts.json"));
+    assert!(ITEMS.contains(&"layouts.json"));
+    let mut files = Files::new();
+    files.insert(
+        "layouts.json".into(),
+        br#"{"version":1,"layouts":[]}"#.to_vec(),
+    );
+    let out = decode(&encode(&files).unwrap()).unwrap();
+    assert_eq!(
+        out.get("layouts.json").map(Vec::as_slice),
+        Some(&br#"{"version":1,"layouts":[]}"#[..])
+    );
+    assert_eq!(super::super::item_label("layouts.json"), "Layouts");
+}
+
+#[test]
 fn encode_decode_round_trips_and_drops_unknown_names() {
     let mut files = Files::new();
     files.insert("hosts.json".into(), b"{\"v\":1}".to_vec());

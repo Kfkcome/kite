@@ -113,6 +113,7 @@ impl Shell {
         let closed = tab.session().read(cx).status.is_dormant();
         let logging = tab.session().read(cx).is_logging();
         let broadcasting = self.is_broadcasting(tab.id);
+        let layout_id = tab.layout_id.clone();
         let mut items = Vec::new();
         if closed {
             items.push(action(icons::RESTART, tr("Reconnect"), move |s, w, cx| {
@@ -136,6 +137,7 @@ impl Shell {
         items.push(action(icons::PEN, tr("Rename…"), move |s, w, cx| {
             s.start_rename(ix, w, cx)
         }));
+        self.push_layout_actions(&mut items, ix, layout_id.as_deref());
         if broadcasting {
             items.push(action(icons::CLOSE, tr("Stop broadcasting"), |s, _, cx| {
                 s.stop_broadcast(cx)
@@ -188,6 +190,62 @@ impl Shell {
         cx.notify();
     }
 
+    /// Save, update, or save-as for the tab that was right-clicked.
+    fn push_layout_actions(&self, items: &mut Vec<Item>, ix: usize, layout_id: Option<&str>) {
+        let linked =
+            layout_id.filter(|id| self.layouts.items.iter().any(|layout| layout.id == *id));
+        if let Some(id) = linked {
+            let id = id.to_owned();
+            items.push(action(
+                icons::LAYOUT,
+                tr("Update layout"),
+                move |s, _, cx| {
+                    s.update_layout(ix, &id, cx);
+                },
+            ));
+            items.push(action(
+                icons::PLUS,
+                tr("Save as new layout…"),
+                move |s, w, cx| s.prompt_save_new(ix, w, cx),
+            ));
+        } else {
+            items.push(action(
+                icons::LAYOUT,
+                tr("Save layout…"),
+                move |s, w, cx| {
+                    s.prompt_save_new(ix, w, cx);
+                },
+            ));
+        }
+    }
+
+    /// Right-click on a saved layout in the sidebar.
+    pub(crate) fn open_layout_menu(
+        &mut self,
+        ix: usize,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.layouts.items.get(ix).map(|layout| layout.id.clone()) else {
+            return;
+        };
+        let open_id = id.clone();
+        let rename_id = id.clone();
+        let items = vec![
+            action(icons::TERMINAL, tr("Open"), move |s, w, cx| {
+                s.open_layout_id(&open_id, w, cx);
+            }),
+            action(icons::PEN, tr("Rename…"), move |s, w, cx| {
+                s.prompt_rename_layout(&rename_id, w, cx);
+            }),
+            destructive(icons::TRASH, tr("Remove"), move |s, _, cx| {
+                s.remove_layout(&id, cx);
+            }),
+        ];
+        self.context_menu = Some(ContextMenu { position, items });
+        cx.notify();
+    }
+
     /// Right-click on an entry in Settings → Vault.
     pub(crate) fn open_vault_menu(
         &mut self,
@@ -217,10 +275,7 @@ impl Shell {
         let Some(tab) = self.tabs.get(ix) else {
             return;
         };
-        if matches!(
-            tab.session().read(cx).launch_again(),
-            crate::session::Launch::Local
-        ) {
+        if tab.session().read(cx).launch_again().is_local() {
             return self.open_local_terminal(window, cx);
         }
         let alias = tab.focused_alias().to_owned();

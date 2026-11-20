@@ -121,13 +121,41 @@ impl Shell {
         }
     }
 
-    /// Hosts the ⌘K picker lists for its current query, in order: the ranked matches, or on
-    /// an empty query the recents first.
-    pub fn picker_matches(&self) -> Vec<usize> {
-        let labels: Vec<String> = self.connections.iter().map(sidebar::search_label).collect();
-        let aliases: Vec<&str> = self.hosts.iter().map(|h| h.alias.as_str()).collect();
+    /// Hosts and layouts the ⌘K picker lists for its current query.
+    pub(crate) fn picker_hits(&self) -> Vec<picker::Hit> {
+        let host_names: Vec<&str> = self.hosts.iter().map(|h| h.alias.as_str()).collect();
+        let host_labels: Vec<String> = self
+            .hosts
+            .iter()
+            .enumerate()
+            .map(|(ix, host)| {
+                self.connections
+                    .get(ix)
+                    .map(sidebar::search_label)
+                    .unwrap_or_else(|| host.alias.clone())
+            })
+            .collect();
+        let layout_names: Vec<&str> = self
+            .layouts
+            .items
+            .iter()
+            .map(|layout| layout.name.as_str())
+            .collect();
+        let layout_labels: Vec<String> = self
+            .layouts
+            .items
+            .iter()
+            .map(crate::layouts::search_text)
+            .collect();
         let recent: Vec<&str> = self.hostlist.recent.aliases().collect();
-        picker::order(&self.picker_query(), &labels, &aliases, &recent)
+        picker::hits(
+            &self.picker_query(),
+            &host_names,
+            &host_labels,
+            &layout_names,
+            &layout_labels,
+            &recent,
+        )
     }
 
     pub fn recent_aliases(&self) -> Vec<String> {

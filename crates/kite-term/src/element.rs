@@ -226,15 +226,7 @@ impl gpui::Element for TerminalElement {
         self.view.update(cx, |view, _| view.row_cache = cache);
 
         let (cursor_under, cursor_over) = match cursor {
-            Some(c) => cursor_quads(
-                c,
-                cursor_wide,
-                &theme,
-                self.focused,
-                origin,
-                cell_w,
-                line_h,
-            ),
+            Some(c) => cursor_quads(c, cursor_wide, &theme, self.focused, origin, cell_w, line_h),
             None => (None, None),
         };
 

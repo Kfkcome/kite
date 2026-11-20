@@ -26,10 +26,11 @@ fn wait_readable(_file: &std::fs::File) {
 
 pub(super) fn spawn(
     size: TermSize,
+    cwd: Option<&std::path::Path>,
     cx: &mut Context<Session>,
 ) -> (Option<Arc<LocalPty>>, Task<()>) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let local = match LocalPty::spawn(size.cols, size.rows) {
+    let local = match LocalPty::spawn_in(size.cols, size.rows, cwd) {
         Ok(pty) => {
             let pty = Arc::new(pty);
             let _ = tx.send(SessionEvent::Connected);

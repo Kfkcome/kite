@@ -23,6 +23,9 @@ use crate::tabs::{self, TabInfo};
 use crate::text_input::TextInput;
 use crate::theme::Theme;
 
+#[path = "sidebar_layouts.rs"]
+mod layouts_ui;
+
 /// `hosts[i]` is `connections[i].entry()`: the sidebar lists tern's own connections only.
 pub struct SidebarState<'a> {
     pub hosts: &'a [HostEntry],
@@ -32,6 +35,7 @@ pub struct SidebarState<'a> {
     pub active_alias: Option<&'a str>,
     pub width: f32,
     pub collapsed_groups: &'a [String],
+    pub layouts: &'a [crate::layouts::SavedLayout],
     /// Indices into `hosts`, newest first, already limited to what the section shows.
     pub query: &'a str,
     pub search: &'a Entity<TextInput>,
@@ -118,12 +122,22 @@ pub fn render(
     };
     if !s.query.trim().is_empty() {
         let found = search(s.query, s.connections);
+        let layouts = layouts_ui::layout_hits(s.query, s.layouts);
         let mut body = div().pt(px(8.)).flex().flex_col().gap(px(2.));
         for (n, &ix) in found.iter().enumerate() {
             body = body.child(one("found", ix, n == 0, cx));
         }
         list = list.child(body);
-        if found.is_empty() {
+        if !layouts.is_empty() {
+            list = list.child(layouts_ui::layout_rows(
+                "found-layout",
+                &layouts,
+                s.layouts,
+                t,
+                cx,
+            ));
+        }
+        if found.is_empty() && layouts.is_empty() {
             list = list.child(
                 div()
                     .px(px(8.))
@@ -167,8 +181,11 @@ pub fn render(
                 }
             }
         }
+        if !s.layouts.is_empty() {
+            list = list.child(layouts_ui::layouts_section(s, t, cx));
+        }
     }
-    if s.hosts.is_empty() {
+    if s.hosts.is_empty() && s.layouts.is_empty() && s.query.trim().is_empty() {
         list = list.child(empty_state(t, cx));
     }
     div()
