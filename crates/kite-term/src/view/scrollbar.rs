@@ -1,9 +1,10 @@
 use std::time::{Duration, Instant};
 
+use alacritty_terminal::term::TermMode;
 use gpui::{
     App, AppContext as _, Bounds, Context, Empty, Entity, InteractiveElement as _, IntoElement,
     MouseButton, MouseUpEvent, Pixels, Render, StatefulInteractiveElement as _, Styled as _, Task,
-    Window, div, px,
+    TouchPhase, Window, div, px,
 };
 
 use crate::terminal::Terminal;
@@ -36,6 +37,9 @@ pub(crate) struct ScrollbarState {
     pub drag: Option<ScrollbarDrag>,
     hide_task: Option<Task<()>>,
     pub remainder: f32,
+    /// Fractional wheel lines for mouse-reporting and alternate scroll. Kept
+    /// off `remainder`, which is the pixel shift painted between rows.
+    report_remainder: f32,
     smooth_pending: f32,
     smooth_last_tick: Option<Instant>,
 }
@@ -92,6 +96,20 @@ impl ScrollbarState {
         self.remainder = 0.0;
         self.smooth_pending = 0.0;
         self.smooth_last_tick = None;
+    }
+
+    /// Whole lines to send for one wheel event in mouse-reporting or alternate
+    /// scroll. Clears the painted smooth-scroll residue, and drops a stale
+    /// fraction when a gesture starts or the wheel reverses.
+    pub(crate) fn take_report_step(&mut self, lines: f32, phase: TouchPhase) -> i32 {
+        self.reset_smooth();
+        if phase == TouchPhase::Started || report_direction_flipped(self.report_remainder, lines) {
+            self.report_remainder = 0.0;
+        }
+        self.report_remainder += lines;
+        let step = self.report_remainder.trunc() as i32;
+        self.report_remainder -= step as f32;
+        step
     }
 
     fn advance_smooth_lines(
@@ -211,6 +229,20 @@ impl ScrollbarMetrics {
     }
 }
 
+/// A fixed TUI viewport must not ride a fractional line. Alternate screen and
+/// mouse reporting both own that viewport.
+pub(crate) fn painted_sub_line(remainder: f32, mode: TermMode) -> f32 {
+    if mode.intersects(TermMode::ALT_SCREEN | TermMode::MOUSE_MODE) {
+        0.0
+    } else {
+        remainder
+    }
+}
+
+fn report_direction_flipped(remainder: f32, lines: f32) -> bool {
+    remainder != 0.0 && lines != 0.0 && (remainder > 0.0) != (lines > 0.0)
+}
+
 pub(crate) fn metrics(
     bounds: Bounds<Pixels>,
     rows: usize,
@@ -302,7 +334,8 @@ pub(crate) fn render_strip(cx: &mut Context<TerminalView>) -> impl IntoElement +
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use gpui::{point, px, size};
+    use alacritty_terminal::term::TermMode;
+    use gpui::{TouchPhase, point, px, size};
 
     #[test]
     fn none_when_no_history() {
@@ -320,5 +353,96 @@ mod tests {
             0
         );
         assert_eq!(m.thumb_w, 7.0);
+    }
+
+    #[test]
+    fn report_steps_do_not_move_the_painted_offset_and_match_scroll_direction() {
+        use alacritty_terminal::index::{Column, Line, Point};
+        use gpui::{ScrollDelta, ScrollWheelEvent};
+
+        use crate::mappings::mouse::scroll_report;
+
+        let mut bar = ScrollbarState {
+            remainder: 0.5,
+            smooth_pending: 1.0,
+            ..ScrollbarState::default()
+        };
+        assert_eq!(bar.take_report_step(0.25, TouchPhase::Moved), 0);
+        assert_eq!(bar.remainder, 0.0);
+        assert_eq!(bar.smooth_pending, 0.0);
+        assert_eq!(bar.report_remainder, 0.25);
+        assert_eq!(painted_sub_line(bar.remainder, TermMode::empty()), 0.0);
+
+        let step = bar.take_report_step(0.75, TouchPhase::Moved);
+        assert_eq!(step, 1);
+        assert_eq!(bar.remainder, 0.0);
+        assert_eq!(bar.report_remainder, 0.0);
+
+        let wheel_down = ScrollWheelEvent {
+            delta: ScrollDelta::Lines(point(0.0, -1.0)),
+            touch_phase: TouchPhase::Moved,
+            ..ScrollWheelEvent::default()
+        };
+        let up: Vec<Vec<u8>> = scroll_report(
+            Point::new(Line(0), Column(0)),
+            step,
+            &wheel_down,
+            TermMode::MOUSE_REPORT_CLICK,
+        )
+        .expect("mouse mode reports the wheel")
+        .collect();
+        assert_eq!(up.len(), 1);
+        assert_eq!(up[0][3], 32 + 64);
+
+        bar.report_remainder = 0.5;
+        assert_eq!(bar.take_report_step(-0.25, TouchPhase::Moved), 0);
+        assert_eq!(bar.report_remainder, -0.25);
+        assert_eq!(bar.remainder, 0.0);
+
+        bar.report_remainder = 0.75;
+        let step = bar.take_report_step(-1.5, TouchPhase::Moved);
+        assert_eq!(step, -1);
+        assert_eq!(bar.report_remainder, -0.5);
+        let wheel_up = ScrollWheelEvent {
+            delta: ScrollDelta::Lines(point(0.0, 1.0)),
+            touch_phase: TouchPhase::Moved,
+            ..ScrollWheelEvent::default()
+        };
+        let down: Vec<Vec<u8>> = scroll_report(
+            Point::new(Line(0), Column(0)),
+            step,
+            &wheel_up,
+            TermMode::MOUSE_REPORT_CLICK,
+        )
+        .expect("mouse mode reports the wheel")
+        .collect();
+        assert_eq!(down[0][3], 32 + 65);
+
+        bar.report_remainder = 0.75;
+        assert_eq!(bar.take_report_step(0.25, TouchPhase::Started), 0);
+        assert_eq!(bar.report_remainder, 0.25);
+        assert_eq!(bar.remainder, 0.0);
+
+        bar.report_remainder = 0.75;
+        assert_eq!(bar.take_report_step(-1.5, TouchPhase::Started), -1);
+        assert_eq!(bar.report_remainder, -0.5);
+    }
+
+    #[test]
+    fn sub_line_offset_is_zero_while_alt_screen_or_mouse_mode_is_active() {
+        let leftover = 0.5;
+        for mode in [
+            TermMode::ALT_SCREEN,
+            TermMode::MOUSE_MODE,
+            TermMode::MOUSE_REPORT_CLICK,
+            TermMode::MOUSE_MOTION,
+            TermMode::MOUSE_DRAG,
+            TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL,
+        ] {
+            assert_eq!(painted_sub_line(leftover, mode), 0.0);
+            assert_eq!(painted_sub_line(-0.25, mode), 0.0);
+        }
+        assert_eq!(painted_sub_line(leftover, TermMode::SHOW_CURSOR), leftover);
+        assert_eq!(painted_sub_line(leftover, TermMode::empty()), leftover);
     }
 }

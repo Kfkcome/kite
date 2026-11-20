@@ -3,7 +3,7 @@ use std::iter::repeat_n;
 
 /// Most of the code, and specifically the constants, in this are copied from Alacritty,
 /// with modifications for our circumstances
-use gpui::{Modifiers, MouseButton, ScrollWheelEvent, px};
+use gpui::{Modifiers, MouseButton, ScrollWheelEvent};
 
 use alacritty_terminal::index::Point;
 use alacritty_terminal::term::TermMode as Modes;
@@ -60,13 +60,9 @@ impl MouseButtonCode {
         }
     }
 
-    fn from_scroll(e: &ScrollWheelEvent) -> Self {
-        let is_positive = match e.delta {
-            gpui::ScrollDelta::Pixels(pixels) => pixels.y > px(0.),
-            gpui::ScrollDelta::Lines(lines) => lines.y > 0.,
-        };
-
-        if is_positive {
+    /// Same sign rule as `alt_scroll`: a positive step is up, not the raw wheel delta.
+    fn from_scroll_lines(scroll_lines: i32) -> Self {
+        if scroll_lines > 0 {
             MouseButtonCode::ScrollUp
         } else {
             MouseButtonCode::ScrollDown
@@ -87,7 +83,7 @@ pub fn scroll_report(
     if mode.intersects(Modes::MOUSE_MODE) {
         mouse_report(
             point,
-            MouseButtonCode::from_scroll(e),
+            MouseButtonCode::from_scroll_lines(scroll_lines),
             true,
             &e.modifiers,
             MouseFormat::from_mode(mode),
@@ -281,5 +277,34 @@ mod tests {
             .collect();
 
         assert_eq!(reports.len(), 3);
+    }
+
+    #[test]
+    fn scroll_report_follows_the_step_sign_not_the_wheel_delta() {
+        let grid_point = Point::new(Line(0), Column(0));
+        let mode = Modes::MOUSE_REPORT_CLICK;
+        let wheel_down = ScrollWheelEvent {
+            delta: ScrollDelta::Lines(point(0., -1.)),
+            touch_phase: TouchPhase::Moved,
+            ..Default::default()
+        };
+        let up: Vec<Vec<u8>> = scroll_report(grid_point, 1, &wheel_down, mode)
+            .expect("mouse mode should produce a scroll report")
+            .collect();
+        assert_eq!(up.len(), 1);
+        assert_eq!(up[0][3], 32 + 64);
+
+        let wheel_up = ScrollWheelEvent {
+            delta: ScrollDelta::Lines(point(0., 1.)),
+            touch_phase: TouchPhase::Moved,
+            ..Default::default()
+        };
+        let down: Vec<Vec<u8>> = scroll_report(grid_point, -2, &wheel_up, mode)
+            .expect("mouse mode should produce a scroll report")
+            .collect();
+        assert_eq!(down.len(), 2);
+        assert_eq!(down[0][3], 32 + 65);
+        assert_eq!(alt_scroll(1).as_slice(), b"\x1bOA");
+        assert_eq!(alt_scroll(-2).as_slice(), b"\x1bOB\x1bOB");
     }
 }

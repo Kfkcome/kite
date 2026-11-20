@@ -502,8 +502,8 @@ impl TerminalView {
         self.selection_scroll_task = None;
     }
 
-    pub(crate) fn sub_line_offset(&self) -> f32 {
-        self.scrollbar.remainder
+    pub(crate) fn sub_line_offset(&self, cx: &App) -> f32 {
+        scrollbar::painted_sub_line(self.scrollbar.remainder, self.mode(cx))
     }
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -516,12 +516,7 @@ impl TerminalView {
                 ScrollDelta::Lines(delta) => delta.y,
                 ScrollDelta::Pixels(delta) => f32::from(delta.y) / line_h,
             };
-            if event.touch_phase == TouchPhase::Started {
-                self.scrollbar.reset_smooth();
-            }
-            self.scrollbar.remainder += lines;
-            let step = self.scrollbar.remainder.trunc() as i32;
-            self.scrollbar.remainder -= step as f32;
+            let step = self.scrollbar.take_report_step(lines, event.touch_phase);
             if step == 0 {
                 return;
             }

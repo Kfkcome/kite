@@ -143,7 +143,7 @@ impl gpui::Element for TerminalElement {
         // A focused blinking cursor is dark in its off phase; an unfocused
         // one is a steady hollow box.
         let cursor_on = !self.focused || self.view.read(cx).cursor_on();
-        let sub_line = self.view.read(cx).sub_line_offset();
+        let sub_line = self.view.read(cx).sub_line_offset(cx);
         let origin = point(origin.x, origin.y + px(sub_line * f32::from(line_h)));
 
         let mut bg_quads = Vec::new();
