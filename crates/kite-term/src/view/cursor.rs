@@ -47,26 +47,53 @@ impl TerminalView {
         self.cursor_on = true;
     }
 
+    pub(super) fn sync_blink(&mut self, focused: bool, cx: &mut Context<Self>) {
+        let should_blink = focused && self.terminal.read(cx).cursor_blinking();
+        if should_blink {
+            if self.blink_task.is_none() {
+                self.blink_task = Some(Self::blink_loop(cx));
+            }
+        } else {
+            self.blink_task = None;
+            if !self.cursor_on {
+                self.cursor_on = true;
+                cx.notify();
+            }
+        }
+    }
+
     pub(super) fn blink_loop(cx: &mut Context<Self>) -> Task<()> {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(CURSOR_BLINK_MS))
                     .await;
-                if this.update(cx, |view, cx| view.blink_tick(cx)).is_err() {
+                let keep_going = this
+                    .update(cx, |view, cx| view.blink_tick(cx))
+                    .unwrap_or(false);
+                if !keep_going {
                     break;
                 }
             }
         })
     }
 
-    fn blink_tick(&mut self, cx: &mut Context<Self>) {
+    fn blink_tick(&mut self, cx: &mut Context<Self>) -> bool {
         let blinking = self.terminal.read(cx).cursor_blinking();
+        if !blinking {
+            self.blink_task = None;
+            if !self.cursor_on {
+                self.cursor_on = true;
+                cx.notify();
+            }
+            return false;
+        }
         let on = blink_phase(self.cursor_on, blinking, self.last_input.elapsed());
         if on != self.cursor_on {
             self.cursor_on = on;
             cx.notify();
         }
+        true
     }
 }
 

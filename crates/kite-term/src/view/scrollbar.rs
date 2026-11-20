@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{
     App, AppContext as _, Bounds, Context, Empty, Entity, InteractiveElement as _, IntoElement,
@@ -37,7 +37,7 @@ pub(crate) struct ScrollbarState {
     hide_task: Option<Task<()>>,
     pub remainder: f32,
     smooth_pending: f32,
-    smooth_task: Option<Task<()>>,
+    smooth_last_tick: Option<Instant>,
 }
 
 impl ScrollbarState {
@@ -91,13 +91,14 @@ impl ScrollbarState {
     pub(crate) fn reset_smooth(&mut self) {
         self.remainder = 0.0;
         self.smooth_pending = 0.0;
-        self.smooth_task = None;
+        self.smooth_last_tick = None;
     }
 
-    pub(crate) fn apply_smooth_lines(
+    fn advance_smooth_lines(
         &mut self,
         lines: f32,
         terminal: &Entity<Terminal>,
+        notify: bool,
         cx: &mut Context<TerminalView>,
     ) {
         self.remainder += lines;
@@ -113,47 +114,72 @@ impl ScrollbarState {
             if t.display_offset() >= t.history_size() {
                 self.remainder = self.remainder.min(0.0);
             }
-            cx.notify();
+            if notify {
+                cx.notify();
+            }
         });
-        self.show(cx);
+        if notify {
+            self.show(cx);
+        } else {
+            self.visible = true;
+            self.hide_task = None;
+        }
     }
 
-    pub(crate) fn queue_smooth_lines(&mut self, lines: f32, cx: &mut Context<TerminalView>) {
+    pub(crate) fn apply_smooth_lines(
+        &mut self,
+        lines: f32,
+        terminal: &Entity<Terminal>,
+        cx: &mut Context<TerminalView>,
+    ) {
+        self.advance_smooth_lines(lines, terminal, true, cx);
+    }
+
+    pub(crate) fn queue_smooth_lines(
+        &mut self,
+        lines: f32,
+        window: &mut Window,
+        cx: &mut Context<TerminalView>,
+    ) {
         self.smooth_pending += lines;
-        if self.smooth_task.is_some() {
+        if self.smooth_last_tick.is_none() {
+            self.smooth_last_tick = Some(Instant::now());
+        }
+        window.request_animation_frame();
+        cx.notify();
+    }
+
+    pub(crate) fn step_smooth(
+        &mut self,
+        terminal: &Entity<Terminal>,
+        window: &mut Window,
+        cx: &mut Context<TerminalView>,
+    ) {
+        if self.smooth_pending.abs() < 0.001 {
+            self.smooth_pending = 0.0;
+            self.smooth_last_tick = None;
             return;
         }
-        self.smooth_task = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(8))
-                    .await;
-                let keep_going = this
-                    .update(cx, |view, cx| {
-                        let rem = view.scrollbar.smooth_pending;
-                        if rem.abs() < 0.001 {
-                            view.scrollbar.smooth_pending = 0.0;
-                            view.scrollbar.smooth_task = None;
-                            return false;
-                        }
-                        let step = if rem.abs() < 0.03 { rem } else { rem * 0.28 };
-                        view.scrollbar.smooth_pending -= step;
-                        let terminal = view.terminal.clone();
-                        view.scrollbar.apply_smooth_lines(step, &terminal, cx);
-                        if view.scrollbar.smooth_pending.abs() < 0.001 {
-                            view.scrollbar.smooth_pending = 0.0;
-                            view.scrollbar.smooth_task = None;
-                            false
-                        } else {
-                            true
-                        }
-                    })
-                    .unwrap_or(false);
-                if !keep_going {
-                    break;
-                }
-            }
-        }));
+        let now = Instant::now();
+        let dt_ms = self
+            .smooth_last_tick
+            .replace(now)
+            .map_or(8.0, |prev| {
+                now.saturating_duration_since(prev).as_secs_f32() * 1000.0
+            })
+            .clamp(1.0, 50.0);
+        let alpha = 1.0 - 0.72_f32.powf(dt_ms / 8.0);
+        let rem = self.smooth_pending;
+        let step = if rem.abs() < 0.03 { rem } else { rem * alpha };
+        self.smooth_pending -= step;
+        self.advance_smooth_lines(step, terminal, false, cx);
+        if self.smooth_pending.abs() < 0.001 {
+            self.smooth_pending = 0.0;
+            self.smooth_last_tick = None;
+            self.schedule_hide(cx);
+        } else {
+            window.request_animation_frame();
+        }
     }
 }
 

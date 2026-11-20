@@ -195,12 +195,16 @@ fn the_cursor_line_is_what_precedes_the_cursor_on_its_row() {
         t.cursor_line_text().as_deref(),
         Some("[sudo] password for test:")
     );
+    assert!(t.cursor_line_ends_with(':'));
+    assert!(!t.cursor_line_ends_with('?'));
     // Text after the cursor is not part of the line being typed.
     t.process(b"\r\x1b[2Cab\x1b[2D");
     assert_eq!(t.cursor_line_text().as_deref(), Some("[s"));
+    assert!(!t.cursor_line_ends_with(':'));
     // A hidden cursor means no line to speak of.
     t.process(b"\x1b[?25l");
     assert_eq!(t.cursor_line_text(), None);
+    assert!(!t.cursor_line_ends_with(':'));
 }
 
 mod fuzz {

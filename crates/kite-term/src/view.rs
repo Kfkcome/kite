@@ -25,6 +25,7 @@ use crate::element::TerminalElement;
 use crate::links::Link;
 use crate::mappings::keys::{ime_character, keystroke_bytes};
 use crate::mappings::mouse::{alt_scroll, mouse_button_report, mouse_moved_report, scroll_report};
+use crate::row_cache::RowShapeCache;
 use crate::search::{FindKey, apply_key, paste_into};
 use crate::terminal::{SelectionType, Side, Terminal, TerminalEvent};
 
@@ -78,7 +79,8 @@ pub struct TerminalView {
     /// Blink phase: whether a blinking cursor is currently drawn.
     cursor_on: bool,
     last_input: Instant,
-    _blink_task: Task<()>,
+    blink_task: Option<Task<()>>,
+    pub(crate) row_cache: RowShapeCache,
     /// Uncommitted input-method text. Empty while the input method is idle.
     ime: ime::Composition,
     /// Counts bells, so each flash restarts its fade animation.
@@ -136,7 +138,8 @@ impl TerminalView {
             ime: ime::Composition::default(),
             cursor_on: true,
             last_input: Instant::now(),
-            _blink_task: Self::blink_loop(cx),
+            blink_task: None,
+            row_cache: RowShapeCache::default(),
             bell_seq: 0,
             bell_active: false,
             bell_task: None,
@@ -503,7 +506,7 @@ impl TerminalView {
         self.scrollbar.remainder
     }
 
-    fn on_scroll(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    fn on_scroll(&mut self, event: &ScrollWheelEvent, window: &mut Window, cx: &mut Context<Self>) {
         let line_h = self.geometry.map(|g| g.line_h).unwrap_or(16.0);
         let mode = self.mode(cx);
         let alt_scroll_mode = mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
@@ -548,7 +551,7 @@ impl TerminalView {
                 self.scrollbar
                     .apply_smooth_lines(f32::from(d.y) / line_h, &term, cx);
             }
-            ScrollDelta::Lines(d) => self.scrollbar.queue_smooth_lines(d.y, cx),
+            ScrollDelta::Lines(d) => self.scrollbar.queue_smooth_lines(d.y, window, cx),
         }
         cx.stop_propagation();
     }
@@ -632,6 +635,9 @@ impl Focusable for TerminalView {
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
+        self.sync_blink(focused, cx);
+        let terminal_ref = self.terminal.clone();
+        self.scrollbar.step_smooth(&terminal_ref, window, cx);
         if !focused {
             self.ime.clear();
         }
@@ -702,9 +708,9 @@ impl Render for TerminalView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Right, cx.listener(Self::on_mouse_up))
-            .on_scroll_wheel(
-                cx.listener(|this, event: &ScrollWheelEvent, _, cx| this.on_scroll(event, cx)),
-            )
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+                this.on_scroll(event, window, cx)
+            }))
             .child(TerminalElement::new(cx.entity(), focused))
             .children(scrollbar_strip)
             .children(find_bar)

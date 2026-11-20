@@ -48,6 +48,22 @@ struct Fade {
     since: Instant,
 }
 
+#[derive(PartialEq)]
+struct FillKey {
+    image: Option<PathBuf>,
+    shell: Hsla,
+    text: Hsla,
+    muted: Hsla,
+    faint: Hsla,
+    term_bg: Hsla,
+    term_fg: Hsla,
+}
+
+struct FillCache {
+    key: FillKey,
+    alpha: Option<f32>,
+}
+
 #[derive(Default)]
 pub(super) struct State {
     shown: Option<Shown>,
@@ -55,6 +71,7 @@ pub(super) struct State {
     /// A want that failed to load, so a bad file is not retried on every frame.
     failed: Option<Want>,
     fade: Option<Fade>,
+    fill_cache: Option<FillCache>,
     pub(super) error: Option<String>,
     pub(super) gallery: super::gallery_ui::Gallery,
 }
@@ -92,15 +109,18 @@ impl Shell {
                 })
                 .detach();
             }
+            self.refresh_window_fill();
             return;
         };
         if self.wp.shown.as_ref().is_some_and(|s| s.want == want)
             || self.wp.loading.as_ref() == Some(&want)
             || self.wp.failed.as_ref() == Some(&want)
         {
+            self.refresh_window_fill();
             return;
         }
         let Some(config) = crate::settings::dir() else {
+            self.refresh_window_fill();
             return;
         };
         self.wp.loading = Some(want.clone());
@@ -114,6 +134,7 @@ impl Shell {
                 .ok();
         })
         .detach();
+        self.refresh_window_fill();
     }
 
     fn wallpaper_ready(
@@ -147,6 +168,7 @@ impl Shell {
                 self.wp.failed = Some(want);
             }
         }
+        self.refresh_window_fill();
         self.refresh_theme(cx);
         self.restyle_tabs(cx);
         cx.notify();
@@ -164,6 +186,7 @@ impl Shell {
         let next = tint.map_or(base, |color| base.tinted(color));
         if next != self.theme {
             self.theme = next;
+            self.refresh_window_fill();
             self.install_input_colors(cx);
             self.restyle_tabs(cx);
             cx.notify();
@@ -190,27 +213,41 @@ impl Shell {
         self.wp.shown.is_some()
     }
 
-    /// The panel opacity while the picture fills the whole window; `None` in hero-only mode and
-    /// without a picture. The smallest alpha at which text, muted and faint text (and the
-    /// terminal's own text) keep 4.5:1 over the picture's brightest and darkest regions.
-    pub(crate) fn window_fill(&self) -> Option<f32> {
+    fn refresh_window_fill(&mut self) {
         if !self.settings.wallpaper_fills_window {
-            return None;
+            self.wp.fill_cache = None;
+            return;
         }
-        let shown = self.wp.shown.as_ref()?;
+        let Some(shown) = self.wp.shown.as_ref() else {
+            self.wp.fill_cache = None;
+            return;
+        };
         let t = &self.theme;
         let term = t.terminal(self.settings.terminal_font_size, self.scheme_for(""));
-        let words = |extra: Option<Hsla>| {
-            let mut v = vec![
-                (rgb_of(t.text), theme_tint::TEXT_CONTRAST),
-                (rgb_of(t.muted), theme_tint::TEXT_CONTRAST),
-                (rgb_of(t.faint), theme_tint::FAINT_CONTRAST),
-            ];
-            v.extend(extra.map(|c| (rgb_of(c), theme_tint::TEXT_CONTRAST)));
-            v
+        let key = FillKey {
+            image: Some(shown.prepared.image.clone()),
+            shell: t.shell,
+            text: t.text,
+            muted: t.muted,
+            faint: t.faint,
+            term_bg: term.background,
+            term_fg: term.foreground,
         };
-        let (shell_words, terminal_words) = (words(None), words(Some(term.foreground)));
-        Some(wallpaper_panel::panel_alpha(
+        if self.wp.fill_cache.as_ref().is_some_and(|c| c.key == key) {
+            return;
+        }
+        let shell_words = [
+            (rgb_of(t.text), theme_tint::TEXT_CONTRAST),
+            (rgb_of(t.muted), theme_tint::TEXT_CONTRAST),
+            (rgb_of(t.faint), theme_tint::FAINT_CONTRAST),
+        ];
+        let terminal_words = [
+            (rgb_of(t.text), theme_tint::TEXT_CONTRAST),
+            (rgb_of(t.muted), theme_tint::TEXT_CONTRAST),
+            (rgb_of(t.faint), theme_tint::FAINT_CONTRAST),
+            (rgb_of(term.foreground), theme_tint::TEXT_CONTRAST),
+        ];
+        let alpha = Some(wallpaper_panel::panel_alpha(
             &shown.prepared.backdrop,
             &[
                 Panel {
@@ -222,7 +259,18 @@ impl Shell {
                     texts: &terminal_words,
                 },
             ],
-        ))
+        ));
+        self.wp.fill_cache = Some(FillCache { key, alpha });
+    }
+
+    /// The panel opacity while the picture fills the whole window; `None` in hero-only mode and
+    /// without a picture. The smallest alpha at which text, muted and faint text (and the
+    /// terminal's own text) keep 4.5:1 over the picture's brightest and darkest regions.
+    pub(crate) fn window_fill(&self) -> Option<f32> {
+        if !self.settings.wallpaper_fills_window {
+            return None;
+        }
+        self.wp.fill_cache.as_ref().and_then(|c| c.alpha)
     }
 
     /// `colour` at the panel opacity while the picture fills the window, else as it is.

@@ -8,16 +8,19 @@
 //! segment per run of same-width glyphs, programmatic box-drawing, and the
 //! cursor.
 
+use std::sync::Arc;
+
 use alacritty_terminal::vte::ansi::CursorShape;
 use gpui::{
-    App, Bounds, Entity, GlobalElementId, Hsla, LayoutId, PaintQuad, Pixels, ShapedLine,
-    SharedString, Style, TextRun, Window, fill, font, outline, point, px, relative, size,
+    App, Bounds, Entity, GlobalElementId, Hsla, LayoutId, PaintQuad, Pixels, SharedString, Style,
+    TextRun, Window, fill, font, outline, point, px, relative, size,
 };
 
 use crate::box_drawing;
 use crate::config::TerminalTheme;
+use crate::row_cache::{BoxCell, RowShaped};
 use crate::search::SearchMark;
-use crate::terminal::{CellColor, CellSnapshot, CursorSnapshot};
+use crate::snapshot::{CellColor, CellSnapshot, CursorSnapshot};
 use crate::view::{GridGeometry, TERM_PADDING, TerminalView};
 
 pub struct TerminalElement {
@@ -31,20 +34,13 @@ impl TerminalElement {
     }
 }
 
-struct BoxCell {
-    col: usize,
-    ch: char,
-    color: Hsla,
-}
-
 pub struct TerminalPrepaint {
     bg_quads: Vec<PaintQuad>,
     /// Painted after `bg_quads`, before glyphs: it tints a cell's own
     /// background and must not wash out the text it highlights.
     sel_quads: Vec<PaintQuad>,
-    /// Per row, the shaped segments and the grid column each starts at.
-    lines: Vec<Vec<(usize, ShapedLine)>>,
-    box_rows: Vec<Vec<BoxCell>>,
+    /// Per row, cached shaped segments and box-drawing cells.
+    lines: Vec<Arc<RowShaped>>,
     start_row: i32,
     grid_rows: usize,
     cell_w: Pixels,
@@ -124,7 +120,7 @@ impl gpui::Element for TerminalElement {
 
         // Report the measured grid before snapshotting so this frame paints
         // the resized grid. The view is not borrowed during prepaint.
-        let terminal = self.view.update(cx, |view, cx| {
+        let (terminal, mut cache) = self.view.update(cx, |view, cx| {
             view.on_grid_metrics(
                 GridGeometry {
                     bounds,
@@ -136,7 +132,7 @@ impl gpui::Element for TerminalElement {
                 },
                 cx,
             );
-            view.terminal.clone()
+            (view.terminal.clone(), std::mem::take(&mut view.row_cache))
         });
         let link_segments = self
             .view
@@ -149,82 +145,96 @@ impl gpui::Element for TerminalElement {
         let cursor_on = !self.focused || self.view.read(cx).cursor_on();
         let sub_line = self.view.read(cx).sub_line_offset();
         let origin = point(origin.x, origin.y + px(sub_line * f32::from(line_h)));
-        let ((start_row, grid), cursor) = {
-            let t = terminal.read(cx);
-            (
-                t.lines_for_scroll(sub_line),
-                t.cursor().filter(|_| cursor_on),
-            )
-        };
 
         let mut bg_quads = Vec::new();
         let mut sel_quads = Vec::new();
-        let mut lines = Vec::with_capacity(grid.len());
-        let mut box_rows = Vec::with_capacity(grid.len());
+        let block_cursor_col;
+        let cursor;
+        let start_row;
+        let mut lines;
+        let mut cursor_wide = false;
 
-        let block_cursor_col =
-            cursor.filter(|c| self.focused && matches!(c.shape, CursorShape::Block));
+        {
+            let t = terminal.read(cx);
+            cursor = t.cursor().filter(|_| cursor_on);
+            block_cursor_col =
+                cursor.filter(|c| self.focused && matches!(c.shape, CursorShape::Block));
+            let viewport = t.scroll_viewport(sub_line);
+            start_row = viewport.start_row;
+            let row_count = (viewport.end_row - viewport.start_row).max(0) as usize;
+            lines = Vec::with_capacity(row_count);
+            let mut row_buf = std::mem::take(&mut cache.row_buf);
+            cache.begin_frame(&theme, &mono, cols as usize, window.scale_factor());
 
-        for (row_ix, row) in grid.iter().enumerate() {
-            let row_pos = start_row + row_ix as i32;
-            let y = origin.y + line_h * row_pos as f32;
-            let quad_at = |start: usize, end: usize, color: Hsla| {
-                fill(
-                    Bounds::new(
-                        point(origin.x + cell_w * start as f32, y),
-                        size(cell_w * (end - start) as f32, line_h),
-                    ),
-                    color,
-                )
-            };
-            // Selected and found runs, one quad per contiguous span.
-            for (start, end) in spans(row, |cell| cell.selected) {
-                sel_quads.push(quad_at(start, end, theme.selection));
-            }
-            for (start, end) in spans(row, |cell| cell.search == SearchMark::Match) {
-                sel_quads.push(quad_at(start, end, theme.search_match));
-            }
-            for (start, end) in spans(row, |cell| cell.search == SearchMark::Current) {
-                sel_quads.push(quad_at(start, end, theme.search_current));
-            }
-            // Merge consecutive non-default background cells into quads.
-            let mut run_start: Option<(usize, Hsla)> = None;
-            for (col, color) in row
-                .iter()
-                .map(|cell| cell.display_colors().1)
-                .chain(std::iter::once(CellColor::Background))
-                .enumerate()
-            {
-                let paint = match color {
-                    CellColor::Background => None,
-                    other => Some(theme.resolve(other)),
-                };
-                match (&run_start, paint) {
-                    (None, Some(color)) => run_start = Some((col, color)),
-                    (Some((start, current)), next) if next != Some(*current) => {
-                        bg_quads.push(quad_at(*start, col, *current));
-                        run_start = next.map(|color| (col, color));
-                    }
-                    _ => {}
+            for row_pos in viewport.start_row..viewport.end_row {
+                t.fill_scroll_row(&viewport, row_pos, &mut row_buf);
+                let row = &row_buf;
+                if cursor.is_some_and(|c| c.row as i32 == row_pos)
+                    && let Some(c) = cursor
+                {
+                    cursor_wide = row.get(c.col).is_some_and(|cell| cell.wide);
                 }
+                let y = origin.y + line_h * row_pos as f32;
+                let quad_at = |start: usize, end: usize, color: Hsla| {
+                    fill(
+                        Bounds::new(
+                            point(origin.x + cell_w * start as f32, y),
+                            size(cell_w * (end - start) as f32, line_h),
+                        ),
+                        color,
+                    )
+                };
+                // Selected and found runs, one quad per contiguous span.
+                for (start, end) in spans(row, |cell| cell.selected) {
+                    sel_quads.push(quad_at(start, end, theme.selection));
+                }
+                for (start, end) in spans(row, |cell| cell.search == SearchMark::Match) {
+                    sel_quads.push(quad_at(start, end, theme.search_match));
+                }
+                for (start, end) in spans(row, |cell| cell.search == SearchMark::Current) {
+                    sel_quads.push(quad_at(start, end, theme.search_current));
+                }
+                // Merge consecutive non-default background cells into quads.
+                let mut run_start: Option<(usize, Hsla)> = None;
+                for (col, color) in row
+                    .iter()
+                    .map(|cell| cell.display_colors().1)
+                    .chain(std::iter::once(CellColor::Background))
+                    .enumerate()
+                {
+                    let paint = match color {
+                        CellColor::Background => None,
+                        other => Some(theme.resolve(other)),
+                    };
+                    match (&run_start, paint) {
+                        (None, Some(color)) => run_start = Some((col, color)),
+                        (Some((start, current)), next) if next != Some(*current) => {
+                            bg_quads.push(quad_at(*start, col, *current));
+                            run_start = next.map(|color| (col, color));
+                        }
+                        _ => {}
+                    }
+                }
+                let cursor_col = block_cursor_col
+                    .filter(|c| c.row as i32 == row_pos)
+                    .map(|c| c.col);
+                lines.push(cache.get_or_shape(row, &theme, font_size, cursor_col, window));
             }
-            let cursor_col = block_cursor_col
-                .filter(|c| c.row as i32 == row_pos)
-                .map(|c| c.col);
-            let (segments, boxes) = shape_row(row, &theme, &mono, font_size, cursor_col, window);
-            lines.push(segments);
-            box_rows.push(boxes);
+            cache.row_buf = row_buf;
         }
+        cache.end_frame();
+        self.view.update(cx, |view, _| view.row_cache = cache);
 
         let (cursor_under, cursor_over) = match cursor {
-            Some(c) => {
-                let wide = usize::try_from(c.row as i32 - start_row)
-                    .ok()
-                    .and_then(|r| grid.get(r))
-                    .and_then(|r| r.get(c.col))
-                    .is_some_and(|cell| cell.wide);
-                cursor_quads(c, wide, &theme, self.focused, origin, cell_w, line_h)
-            }
+            Some(c) => cursor_quads(
+                c,
+                cursor_wide,
+                &theme,
+                self.focused,
+                origin,
+                cell_w,
+                line_h,
+            ),
             None => (None, None),
         };
 
@@ -248,7 +258,6 @@ impl gpui::Element for TerminalElement {
             bg_quads,
             sel_quads,
             lines,
-            box_rows,
             start_row,
             grid_rows: rows as usize,
             cell_w,
@@ -283,9 +292,10 @@ impl gpui::Element for TerminalElement {
             if let Some(quad) = prepaint.cursor_under.take() {
                 window.paint_quad(quad);
             }
-            for (ix, segments) in prepaint.lines.iter().enumerate() {
+            let box_origin = point(origin.x, origin.y + line_h * prepaint.start_row as f32);
+            for (ix, row_shaped) in prepaint.lines.iter().enumerate() {
                 let y = origin.y + line_h * (prepaint.start_row + ix as i32) as f32;
-                for (col, line) in segments {
+                for (col, line) in &row_shaped.segments {
                     let _ = line.paint(
                         point(origin.x + cell_w * *col as f32, y),
                         line_h,
@@ -295,10 +305,7 @@ impl gpui::Element for TerminalElement {
                         cx,
                     );
                 }
-            }
-            let box_origin = point(origin.x, origin.y + line_h * prepaint.start_row as f32);
-            for (ix, boxes) in prepaint.box_rows.iter().enumerate() {
-                paint_box_row(boxes, box_origin, ix, cell_w, line_h, window);
+                paint_box_row(&row_shaped.boxes, box_origin, ix, cell_w, line_h, window);
             }
             for quad in prepaint.link_quads.drain(..) {
                 window.paint_quad(quad);
@@ -563,151 +570,6 @@ fn paint_box_row(
             box_drawing::draw_box_character(*ch, bounds, *color, cell_w, window);
         }
     }
-}
-
-/// Shape one grid row into COLUMN-PINNED segments.
-///
-/// A shaped line places glyphs by font advances, which only match the grid
-/// while every glyph is the mono font's width. A glyph that resolves through
-/// font fallback (arrows, emoji, CJK) has some other advance and would push
-/// the rest of the line out of the grid. So runs of ASCII shape together and
-/// every other glyph is its own segment pinned at its own column. Box-drawing
-/// cells are not shaped at all; they are returned for programmatic painting.
-fn shape_row(
-    row: &[CellSnapshot],
-    theme: &TerminalTheme,
-    mono: &gpui::Font,
-    font_size: Pixels,
-    block_cursor_col: Option<usize>,
-    window: &Window,
-) -> (Vec<(usize, ShapedLine)>, Vec<BoxCell>) {
-    fn flush(
-        segments: &mut Vec<(usize, ShapedLine)>,
-        text: &mut String,
-        runs: &mut Vec<TextRun>,
-        seg_col: usize,
-        font_size: Pixels,
-        window: &Window,
-    ) {
-        if text.is_empty() {
-            return;
-        }
-        let shaped = window.text_system().shape_line(
-            SharedString::from(std::mem::take(text)),
-            font_size,
-            runs,
-            None,
-        );
-        segments.push((seg_col, shaped));
-        runs.clear();
-    }
-
-    let mut segments: Vec<(usize, ShapedLine)> = Vec::new();
-    let mut boxes = Vec::new();
-    let mut text = String::with_capacity(row.len());
-    let mut runs: Vec<TextRun> = Vec::new();
-    let mut seg_col = 0usize;
-
-    for (col, cell) in row.iter().enumerate() {
-        if cell.wide_spacer {
-            continue;
-        }
-        let ch = if cell.hidden { ' ' } else { cell.ch };
-        let (fg, _) = cell.display_colors();
-        let mut color = theme.resolve(fg);
-        if cell.dim {
-            color.a *= 0.6;
-        }
-        if block_cursor_col == Some(col) {
-            color = theme.background;
-        }
-        if box_drawing::get_box_segments(ch).is_some() {
-            flush(
-                &mut segments,
-                &mut text,
-                &mut runs,
-                seg_col,
-                font_size,
-                window,
-            );
-            boxes.push(BoxCell { col, ch, color });
-            continue;
-        }
-        // Anything that can leave the mono font gets its own pinned segment.
-        let pinned = !ch.is_ascii() || cell.wide;
-        if pinned {
-            flush(
-                &mut segments,
-                &mut text,
-                &mut runs,
-                seg_col,
-                font_size,
-                window,
-            );
-        }
-        if text.is_empty() {
-            seg_col = col;
-        }
-        let mut cell_font = mono.clone();
-        cell_font.weight = if cell.bold {
-            gpui::FontWeight::BOLD
-        } else {
-            gpui::FontWeight::NORMAL
-        };
-        cell_font.style = if cell.italic {
-            gpui::FontStyle::Italic
-        } else {
-            gpui::FontStyle::Normal
-        };
-        let underline = cell.underline.then_some(gpui::UnderlineStyle {
-            color: Some(color),
-            thickness: px(1.0),
-            wavy: false,
-        });
-        let strikethrough = cell.strikeout.then_some(gpui::StrikethroughStyle {
-            color: Some(color),
-            thickness: px(1.0),
-        });
-        let len = ch.len_utf8();
-        text.push(ch);
-        match runs.last_mut() {
-            Some(last)
-                if last.color == color
-                    && last.font == cell_font
-                    && last.underline == underline
-                    && last.strikethrough == strikethrough =>
-            {
-                last.len += len;
-            }
-            _ => runs.push(TextRun {
-                len,
-                font: cell_font,
-                color,
-                background_color: None,
-                underline,
-                strikethrough,
-            }),
-        }
-        if pinned {
-            flush(
-                &mut segments,
-                &mut text,
-                &mut runs,
-                seg_col,
-                font_size,
-                window,
-            );
-        }
-    }
-    flush(
-        &mut segments,
-        &mut text,
-        &mut runs,
-        seg_col,
-        font_size,
-        window,
-    );
-    (segments, boxes)
 }
 
 #[cfg(test)]

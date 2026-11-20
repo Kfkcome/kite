@@ -113,7 +113,10 @@ impl Session {
     /// After the remote wrote: if it now asks for a password and one could be filled, tells
     /// the shell once so it can show the shortcut. Types nothing.
     pub(super) fn offer_fill_hint(&mut self, cx: &mut Context<Self>) {
-        if !self.accepts_input() || !self.at_password_prompt(cx) {
+        if !self.accepts_input()
+            || !self.terminal.read(cx).cursor_line_ends_with(':')
+            || !self.at_password_prompt(cx)
+        {
             self.fill_hinted = false;
             return;
         }

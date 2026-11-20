@@ -22,7 +22,7 @@ use crate::settings::{self, SIDEBAR_DEFAULT, Settings};
 use crate::split::{self, PaneId};
 use crate::tabs::{self, ActivateTab, CloseTab, NextTab, PrevTab};
 use crate::theme::Theme;
-use crate::{sidebar, statusline};
+use crate::sidebar;
 
 actions!(
     tern,
@@ -60,6 +60,8 @@ mod menu;
 mod open;
 #[path = "shell_settings.rs"]
 mod settings_ui;
+#[path = "shell_status_bar.rs"]
+mod status_bar;
 #[path = "shell_split_detach.rs"]
 mod split_detach;
 pub(crate) use split_detach::DraggedPane;
@@ -139,6 +141,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
     let window = cx.open_window(options, |_, cx| {
         cx.new(|cx| {
             let theme = Theme::zeron_dark();
+            let weak = cx.weak_entity();
             let mut shell = Shell {
                 focus: cx.focus_handle(),
                 settings: settings::dir()
@@ -185,7 +188,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 wp: wallpaper_ui::State::default(),
                 frame: look::FrameState::default(),
                 system_light: false,
-                _clock: None,
+                status_bar: cx.new(|cx| status_bar::StatusBar::new(weak, cx)),
             };
             shell.refresh_hosts();
             shell
@@ -209,7 +212,6 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
         shell.apply_appearance(cx);
         shell.apply_language(cx);
         shell.install_input_colors(cx);
-        shell.start_clock(cx);
         cx.observe_window_appearance(window, |shell, window, cx| {
             shell.system_light = is_light(window.appearance());
             shell.apply_appearance(cx);
@@ -291,7 +293,7 @@ pub struct Shell {
     frame: look::FrameState,
     /// Whether macOS is in its light appearance; what `Appearance: System` follows.
     system_light: bool,
-    _clock: Option<gpui::Task<()>>,
+    status_bar: Entity<status_bar::StatusBar>,
 }
 
 /// Debug builds: keep scripted logins out of the real ~/.ssh/known_hosts.
@@ -441,6 +443,7 @@ impl Shell {
             .iter()
             .map(|c| c.entry_in(&self.connections))
             .collect();
+        self.hostlist.layout = sidebar::layout(&self.connections);
     }
 
     /// Focus back to the active terminal, or the window when there is none.
@@ -620,6 +623,7 @@ impl Render for Shell {
                 &sidebar::SidebarState {
                     hosts: &self.hosts,
                     connections: &self.connections,
+                    layout: &self.hostlist.layout,
                     open: &infos,
                     active_alias: active_alias.as_deref(),
                     width: self.settings.sidebar_width,
@@ -641,11 +645,7 @@ impl Render for Shell {
         let panel_bg = self.panel_background();
         let hero = self.empty_view_hero(window);
         let layers = self.backdrop();
-        let status_line = if show_workspace {
-            self.render_status_line(self.veil(panel_bg), cx)
-        } else {
-            None
-        };
+        let status_line = self.render_status_line(show_workspace, self.veil(panel_bg), cx);
         let theme_picker = self.render_theme_picker(window, cx);
         let toast = self.render_toast(window, cx);
         let context_menu = self.render_menu(cx);

@@ -25,6 +25,7 @@ pub(super) struct HostList {
     pub search: Entity<TextInput>,
     pub collapsed_groups: Vec<String>,
     pub recent: Recent,
+    pub layout: sidebar::Layout,
     _repaint: Subscription,
 }
 
@@ -43,6 +44,7 @@ impl HostList {
             search,
             collapsed_groups: Vec::new(),
             recent,
+            layout: sidebar::Layout::default(),
             _repaint: repaint,
         }
     }

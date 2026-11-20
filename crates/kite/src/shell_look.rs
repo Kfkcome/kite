@@ -15,16 +15,13 @@
 //! The sharp picture is only the empty view's hero, laid out inside the main tile. Sidebar width
 //! is held in whole device pixels so no edge lands between two.
 
-use crate::hover::Accessible as _;
-use crate::indicator::Dot;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Hsla, IntoElement, ParentElement, Styled, Window,
-    WindowBackgroundAppearance, div, px,
+    AnyElement, Context, Hsla, IntoElement, ParentElement, Window, WindowBackgroundAppearance, div,
+    px,
 };
 
 use super::*;
-use crate::i18n::tr;
 
 impl Shell {
     /// The scheme a host's tabs use: its own, else the default, else zeron's (`None`).
@@ -146,111 +143,29 @@ impl Shell {
         }
     }
 
-    /// The strip under the active tab's terminal, when the setting is on.
+    /// Syncs and returns the isolated status bar entity when the setting is on.
     pub(super) fn render_status_line(
-        &self,
+        &mut self,
+        show_workspace: bool,
         bg: gpui::Hsla,
         cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
-        if !self.settings.show_status_line {
+    ) -> Option<Entity<super::status_bar::StatusBar>> {
+        let session = (show_workspace && self.settings.show_status_line)
+            .then(|| self.tabs.get(self.active).map(|t| t.session().clone()))
+            .flatten();
+        let Some(session) = session else {
+            self.status_bar.update(cx, |bar, _| {
+                bar.sync(self.theme, bg, None, false, 0, false);
+            });
             return None;
-        }
-        let t = &self.theme;
-        let session = self.tabs.get(self.active)?.session().clone();
-        let (label, dot, latency, elapsed, forwards_count) = {
-            let s = session.read(cx);
-            (
-                s.label(),
-                Dot::of(&s.status, s.is_asking()),
-                s.latency(),
-                s.elapsed(),
-                s.active_forwards().len(),
-            )
         };
-        let icon_btn = |id: &'static str, tip: &'static str| {
-            gpui::div()
-                .id(id)
-                .size(px(18.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(4.))
-                .cursor_pointer()
-                .icon_button(crate::i18n::tr(tip), t)
-        };
-        let sftp_session = session.clone();
+        let forwards_count = session.read(cx).active_forwards().len();
         let sftp_open = self.panels.sftp.is_some();
-        let sftp_btn = icon_btn("statusline-sftp", "Browse files")
-            .on_click(cx.listener(move |shell, _, window, cx| {
-                if shell.panels.sftp.is_some() {
-                    shell.close_sftp(window, cx);
-                } else {
-                    shell.open_sftp_for_session(sftp_session.clone(), window, cx);
-                }
-            }))
-            .child(
-                crate::icons::icon(crate::icons::FOLDER)
-                    .size(px(12.))
-                    .text_color(if sftp_open { t.accent } else { t.muted }),
-            );
-        let fwd_session = session.clone();
-        let fwd_btn = icon_btn("statusline-forwards", "Port forwards")
-            .on_click(cx.listener(move |shell, e: &gpui::ClickEvent, window, cx| {
-                if shell.panels.forwards.is_some() {
-                    shell.close_forwards_panel(window, cx);
-                } else {
-                    shell.open_forwards_for_session(fwd_session.clone(), e.position(), window, cx);
-                }
-            }))
-            .child(
-                crate::icons::icon(crate::icons::GLOBE)
-                    .size(px(12.))
-                    .text_color(if forwards_count > 0 {
-                        t.accent
-                    } else {
-                        t.muted
-                    }),
-            );
-        let reconnect_btn = icon_btn("statusline-reconnect", "Reconnect current session")
-            .on_click(cx.listener(move |shell, _, window, cx| {
-                session.update(cx, |s, cx| s.reconnect(cx));
-                shell.restore_focus(window, cx);
-            }))
-            .child(
-                crate::icons::icon(crate::icons::RESTART)
-                    .size(px(12.))
-                    .text_color(t.muted),
-            );
-        Some(
-            statusline::render(t, &label, dot, latency, elapsed, bg)
-                .child(sftp_btn)
-                .child(fwd_btn)
-                .child(reconnect_btn),
-        )
-    }
-
-    /// Repaints once a second while the active tab is connected, so its session time counts.
-    pub(super) fn start_clock(&mut self, cx: &mut Context<Self>) {
-        self._clock = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(1))
-                    .await;
-                let alive = this.update(cx, |s, cx| {
-                    let ticking = s.settings.show_status_line
-                        && s.tabs
-                            .get(s.active)
-                            .is_some_and(|t| t.session().read(cx).status == Status::Connected);
-                    if ticking {
-                        cx.notify();
-                    }
-                });
-                if alive.is_err() {
-                    break;
-                }
-            }
-        }));
+        let theme = self.theme;
+        self.status_bar.update(cx, |bar, _| {
+            bar.sync(theme, bg, Some(session), sftp_open, forwards_count, true);
+        });
+        Some(self.status_bar.clone())
     }
 }
 

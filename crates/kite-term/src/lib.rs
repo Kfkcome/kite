@@ -8,7 +8,9 @@ mod element;
 mod links;
 mod local_pty;
 mod mappings;
+mod row_cache;
 mod search;
+mod snapshot;
 mod terminal;
 mod view;
 
@@ -17,7 +19,6 @@ pub use config::{CursorStyleSetting, TerminalOptions};
 pub use links::Link;
 pub use local_pty::LocalPty;
 pub use search::SearchMark;
-pub use terminal::{
-    CellColor, CellSnapshot, CursorSnapshot, SCROLLBACK_LINES, Terminal, TerminalEvent,
-};
+pub use snapshot::{CellColor, CellSnapshot, CursorSnapshot};
+pub use terminal::{SCROLLBACK_LINES, Terminal, TerminalEvent};
 pub use view::{TerminalView, paste_bytes};

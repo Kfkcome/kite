@@ -27,6 +27,7 @@ use crate::theme::Theme;
 pub struct SidebarState<'a> {
     pub hosts: &'a [HostEntry],
     pub connections: &'a [Connection],
+    pub layout: &'a Layout,
     pub open: &'a [TabInfo],
     pub active_alias: Option<&'a str>,
     pub width: f32,
@@ -37,7 +38,7 @@ pub struct SidebarState<'a> {
 }
 
 /// How the Saved section is laid out: ungrouped hosts first, then one folder per group.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Layout {
     pub ungrouped: Vec<usize>,
     pub groups: Vec<(String, Vec<usize>)>,
@@ -138,7 +139,7 @@ pub fn render(
         // the ⌘K picker instead.
         if !s.hosts.is_empty() {
             {
-                let layout = layout(s.connections);
+                let layout = s.layout;
                 let mut body = div().pt(px(4.)).flex().flex_col().gap(px(2.));
                 for &ix in &layout.ungrouped {
                     body = body.child(one("host", ix, false, cx));

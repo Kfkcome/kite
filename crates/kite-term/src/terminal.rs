@@ -19,15 +19,15 @@ use alacritty_terminal::selection::{Selection, SelectionRange};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::term::{Config, Term, TermMode};
-use alacritty_terminal::vte::ansi::{
-    Color as AnsiColor, CursorShape, NamedColor, Processor, Rgb as AnsiRgb,
-};
+use alacritty_terminal::vte::ansi::{CursorShape, Processor, Rgb as AnsiRgb};
 use gpui::{Context, EventEmitter};
 
 use crate::config::CursorStyleSetting;
 use crate::config::TerminalTheme;
 use crate::links::Link;
-use crate::search::{Search, SearchMark, mark_at};
+use crate::search::{Search, mark_at};
+use crate::snapshot::map_color;
+pub use crate::snapshot::{CellColor, CellSnapshot, CursorSnapshot};
 
 pub use alacritty_terminal::index::Side;
 pub use alacritty_terminal::selection::SelectionType;
@@ -99,88 +99,6 @@ impl Dimensions for GridSize {
     }
 }
 
-/// A cell's paint color, decoupled from the palette; the element resolves
-/// these against the [`TerminalTheme`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CellColor {
-    Foreground,
-    Background,
-    /// 0-15 ANSI, 16-231 color cube, 232-255 grayscale ramp.
-    Indexed(u8),
-    Rgb(u8, u8, u8),
-}
-
-fn map_color(color: AnsiColor) -> CellColor {
-    match color {
-        AnsiColor::Spec(AnsiRgb { r, g, b }) => CellColor::Rgb(r, g, b),
-        AnsiColor::Indexed(ix) => CellColor::Indexed(ix),
-        AnsiColor::Named(named) => {
-            let ix = named as usize;
-            if ix < 16 {
-                return CellColor::Indexed(ix as u8);
-            }
-            match named {
-                NamedColor::Background => CellColor::Background,
-                // Dim named colors fold onto their base index; DIM still
-                // travels on the cell for paint-time dimming.
-                NamedColor::DimBlack
-                | NamedColor::DimRed
-                | NamedColor::DimGreen
-                | NamedColor::DimYellow
-                | NamedColor::DimBlue
-                | NamedColor::DimMagenta
-                | NamedColor::DimCyan
-                | NamedColor::DimWhite => {
-                    CellColor::Indexed((ix - NamedColor::DimBlack as usize) as u8)
-                }
-                _ => CellColor::Foreground,
-            }
-        }
-    }
-}
-
-/// One rendered cell: char + colors + the flags paint cares about.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CellSnapshot {
-    pub ch: char,
-    pub fg: CellColor,
-    pub bg: CellColor,
-    pub bold: bool,
-    pub dim: bool,
-    pub italic: bool,
-    pub underline: bool,
-    pub strikeout: bool,
-    pub inverse: bool,
-    pub hidden: bool,
-    /// Double-width char (occupies this cell plus the next spacer cell).
-    pub wide: bool,
-    /// Spacer half of a wide char: never shaped, only background-painted.
-    pub wide_spacer: bool,
-    pub selected: bool,
-    /// Find-in-scrollback overlay.
-    pub search: SearchMark,
-}
-
-impl CellSnapshot {
-    /// Effective (fg, bg) after INVERSE/HIDDEN resolution.
-    pub fn display_colors(&self) -> (CellColor, CellColor) {
-        let (fg, bg) = if self.inverse {
-            (self.bg, self.fg)
-        } else {
-            (self.fg, self.bg)
-        };
-        if self.hidden { (bg, bg) } else { (fg, bg) }
-    }
-}
-
-/// Cursor position in viewport coordinates (row 0 = top of the visible grid).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CursorSnapshot {
-    pub row: usize,
-    pub col: usize,
-    pub shape: CursorShape,
-}
-
 /// Captures `Term` callbacks. `EventListener::send_event` takes `&self`;
 /// single-threaded (the model lives inside a gpui entity).
 #[derive(Default, Clone)]
@@ -224,6 +142,14 @@ impl std::fmt::Debug for Terminal {
 }
 
 impl EventEmitter<TerminalEvent> for Terminal {}
+
+/// Viewport snapshot metadata shared across all rows of a single paint frame.
+pub(crate) struct RowViewport {
+    selection: Option<SelectionRange>,
+    matches: Vec<(Match, bool)>,
+    pub(crate) start_row: i32,
+    pub(crate) end_row: i32,
+}
 
 impl Terminal {
     pub fn new(cols: u16, rows: u16) -> Self {
@@ -631,39 +557,52 @@ impl Terminal {
 
     // ---- snapshots ----
 
+    fn fill_line_inner(
+        &self,
+        viewport_row: i32,
+        selection: Option<SelectionRange>,
+        matches: &[(Match, bool)],
+        out: &mut Vec<CellSnapshot>,
+    ) {
+        out.clear();
+        let offset = self.display_offset() as i32;
+        let line = Line(viewport_row - offset);
+        let row = &self.term.grid()[line];
+        let cols = self.cols();
+        out.reserve(cols);
+        for col in 0..cols {
+            let cell = &row[Column(col)];
+            let pt = Point::new(line, Column(col));
+            out.push(CellSnapshot {
+                ch: cell.c,
+                fg: map_color(cell.fg),
+                bg: map_color(cell.bg),
+                bold: cell.flags.intersects(Flags::BOLD),
+                dim: cell.flags.intersects(Flags::DIM),
+                italic: cell.flags.intersects(Flags::ITALIC),
+                underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+                strikeout: cell.flags.intersects(Flags::STRIKEOUT),
+                inverse: cell.flags.intersects(Flags::INVERSE),
+                hidden: cell.flags.intersects(Flags::HIDDEN),
+                wide: cell.flags.intersects(Flags::WIDE_CHAR),
+                wide_spacer: cell
+                    .flags
+                    .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER),
+                selected: selection.is_some_and(|range| range.contains(pt)),
+                search: mark_at(matches, pt),
+            });
+        }
+    }
+
     fn line_inner(
         &self,
         viewport_row: i32,
         selection: Option<SelectionRange>,
         matches: &[(Match, bool)],
     ) -> Vec<CellSnapshot> {
-        let offset = self.display_offset() as i32;
-        let line = Line(viewport_row - offset);
-        let row = &self.term.grid()[line];
-        (0..self.cols())
-            .map(|col| {
-                let cell = &row[Column(col)];
-                CellSnapshot {
-                    ch: cell.c,
-                    fg: map_color(cell.fg),
-                    bg: map_color(cell.bg),
-                    bold: cell.flags.intersects(Flags::BOLD),
-                    dim: cell.flags.intersects(Flags::DIM),
-                    italic: cell.flags.intersects(Flags::ITALIC),
-                    underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
-                    strikeout: cell.flags.intersects(Flags::STRIKEOUT),
-                    inverse: cell.flags.intersects(Flags::INVERSE),
-                    hidden: cell.flags.intersects(Flags::HIDDEN),
-                    wide: cell.flags.intersects(Flags::WIDE_CHAR),
-                    wide_spacer: cell
-                        .flags
-                        .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER),
-                    selected: selection
-                        .is_some_and(|range| range.contains(Point::new(line, Column(col)))),
-                    search: mark_at(matches, Point::new(line, Column(col))),
-                }
-            })
-            .collect()
+        let mut out = Vec::with_capacity(self.cols());
+        self.fill_line_inner(viewport_row, selection, matches, &mut out);
+        out
     }
 
     /// One viewport row (0 = top), honoring the scrollback offset.
@@ -686,19 +625,24 @@ impl Terminal {
             .collect()
     }
 
-    /// Viewport rows plus up to one margin row before/after for sub-line smooth scrolling.
-    /// Returns `(start_row_index, rows)`.
-    pub fn lines_for_scroll(&self, sub_line: f32) -> (i32, Vec<Vec<CellSnapshot>>) {
-        let selection = self.selection_range();
-        let matches = self.visible_matches();
+    pub(crate) fn scroll_viewport(&self, sub_line: f32) -> RowViewport {
         let before = i32::from(sub_line > 0.001 && self.display_offset() < self.history_size());
         let after = i32::from(sub_line < -0.001 && self.display_offset() > 0);
-        let start = -before;
-        let end = self.rows() as i32 + after;
-        let rows = (start..end)
-            .map(|r| self.line_inner(r, selection, &matches))
-            .collect();
-        (start, rows)
+        RowViewport {
+            selection: self.selection_range(),
+            matches: self.visible_matches(),
+            start_row: -before,
+            end_row: self.rows() as i32 + after,
+        }
+    }
+
+    pub(crate) fn fill_scroll_row(
+        &self,
+        viewport: &RowViewport,
+        viewport_row: i32,
+        out: &mut Vec<CellSnapshot>,
+    ) {
+        self.fill_line_inner(viewport_row, viewport.selection, &viewport.matches, out);
     }
 
     /// Cursor in viewport coordinates; `None` when hidden or scrolled out.
@@ -719,36 +663,58 @@ impl Terminal {
         })
     }
 
+    fn grid_row_text(&self, viewport_row: usize, max_col: usize) -> String {
+        let line = Line(viewport_row as i32 - self.display_offset() as i32);
+        let row = &self.term.grid()[line];
+        let cols = max_col.min(self.cols());
+        let mut text = String::with_capacity(cols);
+        for col in 0..cols {
+            let cell = &row[Column(col)];
+            if !cell
+                .flags
+                .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+            {
+                text.push(cell.c);
+            }
+        }
+        while text.ends_with(' ') {
+            text.pop();
+        }
+        text
+    }
+
+    /// Zero-allocation check whether the trimmed text left of the cursor ends with `suffix`.
+    pub fn cursor_line_ends_with(&self, suffix: char) -> bool {
+        let Some(cursor) = self.cursor() else {
+            return false;
+        };
+        let line = Line(cursor.row as i32 - self.display_offset() as i32);
+        let row = &self.term.grid()[line];
+        for col in (0..cursor.col.min(self.cols())).rev() {
+            let cell = &row[Column(col)];
+            if cell
+                .flags
+                .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                || cell.c == ' '
+            {
+                continue;
+            }
+            return cell.c == suffix;
+        }
+        false
+    }
+
     /// The text on the cursor's row up to (not including) the cursor, trailing blanks
     /// trimmed: what the remote has written at the line being typed, so a prompt can be
     /// recognised before anything is sent. `None` when the cursor is hidden or scrolled out.
     pub fn cursor_line_text(&self) -> Option<String> {
         let cursor = self.cursor()?;
-        let mut text: String = self
-            .line(cursor.row)
-            .iter()
-            .take(cursor.col)
-            .filter(|c| !c.wide_spacer)
-            .map(|c| c.ch)
-            .collect();
-        while text.ends_with(' ') {
-            text.pop();
-        }
-        Some(text)
+        Some(self.grid_row_text(cursor.row, cursor.col))
     }
 
     /// A viewport row as trimmed text (wide-char spacers skipped).
     pub fn row_text(&self, viewport_row: usize) -> String {
-        let mut text: String = self
-            .line(viewport_row)
-            .iter()
-            .filter(|c| !c.wide_spacer)
-            .map(|c| c.ch)
-            .collect();
-        while text.ends_with(' ') {
-            text.pop();
-        }
-        text
+        self.grid_row_text(viewport_row, self.cols())
     }
 }
 
