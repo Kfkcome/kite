@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 pub const SIDEBAR_MIN: f32 = 224.0;
 pub const SIDEBAR_MAX: f32 = 400.0;
 pub const SIDEBAR_DEFAULT: f32 = 256.0;
+/// Docked Layouts pane. Older settings files omit it and get [`LAYOUTS_DEFAULT`].
+pub const LAYOUTS_MIN: f32 = 88.0;
+pub const LAYOUTS_MAX: f32 = 420.0;
+pub const LAYOUTS_DEFAULT: f32 = 160.0;
 /// zeron `typography::FONT_SIZE_MIN/MAX` and `TERMINAL_FONT_SIZE_DEFAULT`.
 pub const FONT_MIN: f32 = 8.0;
 pub const FONT_MAX: f32 = 32.0;
@@ -81,6 +85,9 @@ pub struct Settings {
     pub sharp_text: bool,
     pub sidebar_width: f32,
     pub sidebar_collapsed: bool,
+    /// Height of the docked Layouts section. Missing from older files.
+    #[serde(default = "layouts_height_default")]
+    pub sidebar_layouts_height: f32,
     pub terminal_font_size: f32,
     /// Terminal font family; `None` is the bundled Geist Mono.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,6 +167,7 @@ impl Default for Settings {
             sharp_text: true,
             sidebar_width: SIDEBAR_DEFAULT,
             sidebar_collapsed: false,
+            sidebar_layouts_height: LAYOUTS_DEFAULT,
             terminal_font_size: FONT_DEFAULT,
             terminal_font_family: None,
             reduce_motion: false,
@@ -216,7 +224,7 @@ impl Settings {
         std::fs::rename(&tmp, &path)
     }
 
-    /// Widths into their legal range; NaN or infinity back to the default.
+    /// Widths and the layouts pane into their legal range; NaN or infinity back to the default.
     pub fn clamped(mut self) -> Self {
         // Whole points are whole device pixels at 1x and 2x; the shell snaps the rest.
         self.sidebar_width = clamp_or(
@@ -226,6 +234,12 @@ impl Settings {
             SIDEBAR_DEFAULT,
         )
         .round();
+        self.sidebar_layouts_height = clamp_or(
+            self.sidebar_layouts_height,
+            LAYOUTS_MIN,
+            LAYOUTS_MAX,
+            LAYOUTS_DEFAULT,
+        );
         self.terminal_font_size =
             clamp_or(self.terminal_font_size, FONT_MIN, FONT_MAX, FONT_DEFAULT);
         self.scrollback_lines = self.scrollback_lines.clamp(SCROLLBACK_MIN, SCROLLBACK_MAX);
@@ -333,6 +347,10 @@ fn platform_dir() -> Option<PathBuf> {
         .map(|base| base.join("kite"))
 }
 
+fn layouts_height_default() -> f32 {
+    LAYOUTS_DEFAULT
+}
+
 fn clamp_or(value: f32, min: f32, max: f32, default: f32) -> f32 {
     if value.is_finite() {
         value.clamp(min, max)
@@ -435,6 +453,7 @@ mod tests {
             sharp_text: false,
             sidebar_width: 312.0,
             sidebar_collapsed: true,
+            sidebar_layouts_height: 200.0,
             terminal_font_size: 15.0,
             terminal_font_family: Some("JetBrainsMono Nerd Font Mono".into()),
             reduce_motion: true,
@@ -604,6 +623,26 @@ mod tests {
         loaded.save(&dir).unwrap();
         let text = std::fs::read_to_string(dir.join(FILE_NAME)).unwrap();
         assert!(!text.contains("hiddenHosts"), "{text}");
+    }
+
+    #[test]
+    fn layouts_height_defaults_on_old_files_and_clamps() {
+        let dir = temp_dir("layouts-height");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILE_NAME), r#"{"sidebarWidth":300}"#).unwrap();
+        assert_eq!(Settings::load(&dir).sidebar_layouts_height, LAYOUTS_DEFAULT);
+        let at = |h: f32| {
+            Settings {
+                sidebar_layouts_height: h,
+                ..Settings::default()
+            }
+            .clamped()
+            .sidebar_layouts_height
+        };
+        assert_eq!(at(10.0), LAYOUTS_MIN);
+        assert_eq!(at(9000.0), LAYOUTS_MAX);
+        assert_eq!(at(200.0), 200.0);
+        assert_eq!(at(f32::NAN), LAYOUTS_DEFAULT);
     }
 
     #[test]

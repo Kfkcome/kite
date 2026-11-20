@@ -529,6 +529,13 @@ impl Render for Shell {
         let show_workspace = self.settings_page.is_none();
         let sidebar = if show_workspace && sidebar_now > 0.0 {
             let query = self.search_query(cx);
+            let layouts_height = look::snap(
+                sidebar::layouts_display_height(
+                    self.settings.sidebar_layouts_height,
+                    f32::from(window.viewport_size().height),
+                ),
+                self.frame.scale,
+            );
             sidebar::render(
                 &sidebar::SidebarState {
                     hosts: &self.hosts,
@@ -539,6 +546,7 @@ impl Render for Shell {
                     width: self.settings.sidebar_width,
                     collapsed_groups: &self.hostlist.collapsed_groups,
                     layouts: &self.layouts.items,
+                    layouts_height,
                     query: &query,
                     search: &self.hostlist.search,
                 },
@@ -654,6 +662,15 @@ impl Render for Shell {
                     s.on_sidebar_drag(f32::from(e.event.position.x), cx)
                 }),
             )
+            .on_drag_move(cx.listener(
+                |s, e: &gpui::DragMoveEvent<sidebar::LayoutsResize>, window, cx| {
+                    s.on_layouts_drag(
+                        f32::from(e.event.position.y),
+                        f32::from(window.viewport_size().height),
+                        cx,
+                    );
+                },
+            ))
             .child(chrome::render_titlebar(
                 &t,
                 window.is_fullscreen(),

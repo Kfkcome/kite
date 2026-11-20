@@ -26,6 +26,8 @@ use crate::theme::Theme;
 #[path = "sidebar_layouts.rs"]
 mod layouts_ui;
 
+pub(crate) use layouts_ui::{LayoutsResize, dragged_layouts_height, layouts_display_height};
+
 /// `hosts[i]` is `connections[i].entry()`: the sidebar lists tern's own connections only.
 pub struct SidebarState<'a> {
     pub hosts: &'a [HostEntry],
@@ -36,6 +38,8 @@ pub struct SidebarState<'a> {
     pub width: f32,
     pub collapsed_groups: &'a [String],
     pub layouts: &'a [crate::layouts::SavedLayout],
+    /// Docked Layouts pane height for this frame, already capped to the window.
+    pub layouts_height: f32,
     /// Indices into `hosts`, newest first, already limited to what the section shows.
     pub query: &'a str,
     pub search: &'a Entity<TextInput>,
@@ -181,9 +185,6 @@ pub fn render(
                 }
             }
         }
-        if !s.layouts.is_empty() {
-            list = list.child(layouts_ui::layouts_section(s, t, cx));
-        }
     }
     if s.hosts.is_empty() && s.layouts.is_empty() && s.query.trim().is_empty() {
         list = list.child(empty_state(t, cx));
@@ -217,6 +218,9 @@ pub fn render(
             ),
         )
         .child(list)
+        .when(!s.layouts.is_empty() && s.query.trim().is_empty(), |el| {
+            el.child(layouts_ui::layouts_dock(s, t, cx))
+        })
         .child(footer(t, cx))
 }
 
@@ -496,11 +500,14 @@ fn row(
         )
 }
 
+/// Sync row plus the padding around it. The layouts splitter measures up from this.
+const FOOTER_HEIGHT: f32 = 44.;
+
 /// zeron's footer: a pill on the left (here: sync) and the settings gear on the right.
 fn footer(t: &Theme, cx: &mut Context<Shell>) -> impl IntoElement + use<> {
     div()
+        .h(px(FOOTER_HEIGHT))
         .px(px(8.))
-        .py(px(8.))
         .flex()
         .items_center()
         .justify_between()

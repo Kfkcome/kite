@@ -71,6 +71,20 @@ impl Shell {
         }
     }
 
+    /// Live drag of the layouts splitter: follows the pointer and writes the file on mouse-up.
+    pub(super) fn on_layouts_drag(
+        &mut self,
+        pointer_y: f32,
+        window_height: f32,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings.sidebar_layouts_height = super::look::snap(
+            crate::sidebar::dragged_layouts_height(pointer_y, window_height),
+            self.frame.scale,
+        );
+        cx.notify();
+    }
+
     /// Cmd+S: update the linked layout, or ask for a name when the tab has none.
     pub(crate) fn save_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.layouts.prompt.is_some() {
