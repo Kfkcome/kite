@@ -3,12 +3,18 @@
 //! remote can print a fake prompt, so kite only offers (a hint), and only types on the key
 //! press, and only when the cursor line really ends in a password prompt.
 //!
-//! Port forwards of one session: the ones the connection lists start once it is connected, and
-//! more can be added or stopped while it is open. What was added stays in the spec, so an
-//! automatic reconnect brings it back; what was stopped is dropped from it.
+//! Port forwards of one session. The shell decides which connection of a host owns each
+//! forward, so a second tab does not bind the same ports; this module only starts, stops and
+//! releases the ones it was given. What was added stays in the spec, so an automatic reconnect
+//! brings it back; what was stopped is dropped from it.
+
+use std::time::Duration;
 
 use gpui::{AppContext, Context, EventEmitter};
-use kite_ssh::{ExposeSecret, Forward, ForwardInfo, SecretString};
+use kite_ssh::{
+    ConnectSpec, ExposeSecret, Forward, ForwardError, ForwardHandle, ForwardInfo, JumpHop,
+    SecretString, SessionHandle,
+};
 use kite_vault::Key;
 
 use super::Session;
@@ -235,8 +241,19 @@ impl Session {
 
 /// Something the shell should tell the person about, without the session knowing how.
 pub enum SessionNote {
+    /// The shell is up. The shell starts this connection's forwards unless another tab already
+    /// holds them.
+    Connected,
+    /// The connection ended. `forwards` were running and have been released.
+    Disconnected {
+        forwards: Vec<Forward>,
+    },
+    /// `forward` is listening. The shell drops its in-flight mark.
+    ForwardStarted {
+        forward: Forward,
+    },
     ForwardFailed {
-        forward: String,
+        forward: Forward,
         error: String,
     },
     /// The remote is asking for a password and one could be filled: show the shortcut.
@@ -249,46 +266,154 @@ pub enum SessionNote {
 
 impl EventEmitter<SessionNote> for Session {}
 
-impl Session {
-    /// Starts every forward the connection lists. Called once the shell is up.
-    pub(super) fn start_spec_forwards(&mut self, cx: &mut Context<Self>) {
-        for forward in self.link.spec.forwards.clone() {
-            self.run_forward(forward, false, cx);
+/// The SSH target a forward belongs to. Local terminals have none. Identity files are not
+/// part of it: two tabs that log in with different keys still share one server's ports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostKey {
+    host: String,
+    port: u16,
+    user: String,
+    proxy_command: Option<String>,
+    proxy_jump: Vec<JumpHop>,
+}
+
+impl HostKey {
+    pub(crate) fn from_spec(spec: &ConnectSpec) -> Self {
+        Self {
+            host: spec.host.clone(),
+            port: spec.port,
+            user: spec.user.clone(),
+            proxy_command: spec.proxy_command.clone(),
+            proxy_jump: spec.proxy_jump.clone(),
         }
+    }
+}
+
+/// How many times a handoff retries a bind the previous connection has not released yet.
+const HANDOFF_RETRIES: u8 = 8;
+/// Pause between those retries. A remote `-R` stays taken until sshd finishes cancelling it.
+const HANDOFF_WAIT: Duration = Duration::from_millis(50);
+
+impl Session {
+    /// `None` for a local terminal, which has no SSH port forwards.
+    pub(crate) fn host_key(&self) -> Option<HostKey> {
+        if self.link.is_local {
+            None
+        } else {
+            Some(HostKey::from_spec(&self.link.spec))
+        }
+    }
+
+    /// Forwards a reconnect of this session would start.
+    pub(crate) fn spec_forwards(&self) -> Vec<Forward> {
+        self.link.spec.forwards.clone()
+    }
+
+    pub(super) fn note_connected(&mut self, cx: &mut Context<Self>) {
+        cx.emit(SessionNote::Connected);
+    }
+
+    /// Releases listeners before the shell is told, so another session can bind them.
+    pub(super) fn note_disconnected(&mut self, cx: &mut Context<Self>) {
+        let forwards = self.take_forwards();
+        cx.emit(SessionNote::Disconnected { forwards });
+    }
+
+    /// Stops every listener without forgetting it in the spec. Used when the sockets move to
+    /// another connection of the same host; a reconnect of this one still wants them.
+    pub(crate) fn release_forwards(&mut self, cx: &mut Context<Self>) {
+        self.take_forwards();
+        cx.notify();
+    }
+
+    fn take_forwards(&mut self) -> Vec<Forward> {
+        let handles = std::mem::take(&mut self.forward_handles);
+        let forwards = handles
+            .iter()
+            .map(|handle| handle.info().forward.clone())
+            .collect();
+        for handle in &handles {
+            handle.stop();
+        }
+        forwards
     }
 
     /// Adds a forward to the live connection (and to its reconnects).
     pub fn add_forward(&mut self, forward: Forward, cx: &mut Context<Self>) {
-        if !self.link.spec.forwards.contains(&forward) {
-            self.link.spec.forwards.push(forward.clone());
-        }
-        self.run_forward(forward, true, cx);
+        self.enqueue_forward(forward, false, cx);
     }
 
-    fn run_forward(&mut self, forward: Forward, added: bool, cx: &mut Context<Self>) {
+    /// Starts `forward` on this connection and keeps it in the spec even if the first binds
+    /// fail. A handoff uses this: the port may still be closing on the connection that left.
+    pub(crate) fn launch_forward(&mut self, forward: Forward, cx: &mut Context<Self>) {
+        self.enqueue_forward(forward, true, cx);
+    }
+
+    fn enqueue_forward(&mut self, forward: Forward, handoff: bool, cx: &mut Context<Self>) {
+        let known = self.link.spec.forwards.contains(&forward);
+        if !known {
+            self.link.spec.forwards.push(forward.clone());
+        }
+        // A forward the person just added is removed when it fails, so a typo is not retried
+        // on every reconnect. A handoff keeps it: the connection that used to own it is gone.
+        let added = !handoff && !known;
+        self.run_forward(forward, added, handoff, cx);
+    }
+
+    fn run_forward(
+        &mut self,
+        forward: Forward,
+        added: bool,
+        handoff: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(handle) = self.link.handle.clone() else {
+            if added {
+                self.link.spec.forwards.retain(|item| *item != forward);
+            }
+            cx.emit(SessionNote::ForwardFailed {
+                forward,
+                error: "session closed".into(),
+            });
             return;
         };
         cx.spawn(async move |this, cx| {
-            let started = handle.start_forward(forward.clone()).await;
+            let started = bind_forward(handle, &forward, handoff, cx).await;
+            // Dropping a `ForwardHandle` does not stop it. A tab that closed while this
+            // bind was in flight never runs the update, so the guard stops the listener
+            // or the session that inherited the port cannot bind it.
+            let mut pending = match started {
+                Ok(handle) => Some(Unkept {
+                    handle: Some(handle),
+                }),
+                Err(error) => {
+                    let _ = this.update(cx, |s, cx| {
+                        report_forward_failure(s, &forward, added, &error, cx);
+                    });
+                    return;
+                }
+            };
             let _ = this.update(cx, |s, cx| {
-                match started {
-                    Ok(h) => s.forward_handles.push(h),
-                    Err(e) => {
-                        tracing::warn!(forward = %forward, error = %e, "forward_failed");
-                        if added {
-                            s.link.spec.forwards.retain(|f| *f != forward);
-                        }
-                        cx.emit(SessionNote::ForwardFailed {
-                            forward: forward.to_string(),
-                            error: e.to_string(),
-                        });
-                    }
+                let Some(mut held) = pending.take() else {
+                    return;
+                };
+                if s.status == Status::Connected
+                    && let Some(handle) = held.handle.take()
+                {
+                    s.forward_handles.push(handle);
+                    cx.emit(SessionNote::ForwardStarted {
+                        forward: forward.clone(),
+                    });
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Drops `forward` from this session's spec so a reconnect does not start it.
+    pub(crate) fn forget_spec_forward(&mut self, forward: &Forward) {
+        self.link.spec.forwards.retain(|item| item != forward);
     }
 
     /// Stops one forward and forgets it, so a reconnect does not revive it.
@@ -310,11 +435,69 @@ impl Session {
             .map(|h| h.info().clone())
             .collect()
     }
+}
 
-    /// A connection that ended took its forwards with it.
-    pub(super) fn forget_forwards(&mut self) {
-        self.forward_handles.clear();
+/// Stops a listener unless the session installed it. The shell may have dropped the session
+/// before `update` runs; the guard then drops with the closure that never ran.
+#[derive(Debug)]
+struct Unkept {
+    handle: Option<ForwardHandle>,
+}
+
+impl Drop for Unkept {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.stop();
+        }
     }
+}
+
+fn report_forward_failure(
+    session: &mut Session,
+    forward: &Forward,
+    added: bool,
+    error: &ForwardError,
+    cx: &mut Context<Session>,
+) {
+    tracing::warn!(forward = %forward, error = %error, "forward_failed");
+    if added {
+        session.link.spec.forwards.retain(|item| item != forward);
+    }
+    cx.emit(SessionNote::ForwardFailed {
+        forward: forward.clone(),
+        error: error.to_string(),
+    });
+    cx.notify();
+}
+
+/// `true` when the failure is the previous listener still owning the port.
+fn bind_contended(error: &ForwardError) -> bool {
+    match error {
+        ForwardError::Refused(_) => true,
+        ForwardError::Listen { reason, .. } => reason.contains("already in use"),
+        ForwardError::Closed => false,
+    }
+}
+
+async fn bind_forward(
+    handle: SessionHandle,
+    forward: &Forward,
+    handoff: bool,
+    cx: &mut gpui::AsyncApp,
+) -> std::result::Result<ForwardHandle, ForwardError> {
+    let mut started = handle.start_forward(forward.clone()).await;
+    if !handoff {
+        return started;
+    }
+    for _ in 0..HANDOFF_RETRIES {
+        let retry = matches!(&started, Err(error) if bind_contended(error));
+        if !retry {
+            break;
+        }
+        cx.background_executor().timer(HANDOFF_WAIT).await;
+        started = handle.start_forward(forward.clone()).await;
+    }
+    started
 }
 
 #[cfg(test)]
@@ -398,5 +581,22 @@ mod tests {
             source(Some("sudo-cmd"), None, false),
             Source::Sudo("sudo-cmd".into())
         );
+    }
+
+    #[test]
+    fn only_a_busy_port_is_retried_after_a_handoff() {
+        use kite_ssh::ForwardError;
+        assert!(super::bind_contended(&ForwardError::Refused(
+            "127.0.0.1:7890".into()
+        )));
+        assert!(super::bind_contended(&ForwardError::Listen {
+            addr: "127.0.0.1:7897".into(),
+            reason: "the port is already in use".into(),
+        }));
+        assert!(!super::bind_contended(&ForwardError::Listen {
+            addr: "127.0.0.1:1".into(),
+            reason: "permission denied".into(),
+        }));
+        assert!(!super::bind_contended(&ForwardError::Closed));
     }
 }

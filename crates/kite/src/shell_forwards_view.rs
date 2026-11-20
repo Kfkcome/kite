@@ -86,14 +86,7 @@ impl Shell {
             );
         } else {
             for (ix, row) in rows.iter().enumerate() {
-                list = list.child(self.render_tunnel_row(
-                    ix,
-                    row,
-                    &session,
-                    &host_alias,
-                    is_saved_host,
-                    cx,
-                ));
+                list = list.child(self.render_tunnel_row(ix, row, &host_alias, is_saved_host, cx));
             }
         }
 
@@ -179,7 +172,6 @@ impl Shell {
         &self,
         ix: usize,
         row: &TunnelRow,
-        session: &Entity<crate::session::Session>,
         host_alias: &str,
         is_saved_host: bool,
         cx: &mut Context<Self>,
@@ -187,7 +179,7 @@ impl Shell {
         let t = self.theme;
         let running = row.running_id.is_some();
         let (kind_label, kind_color, desc) = describe_tunnel(&row.forward, row.bound_port);
-        let session_btn = session.clone();
+        let owner = row.owner.clone();
         let fwd_start = row.forward.clone();
         let fwd_save = row.forward.clone();
         let fwd_auto = row.forward.clone();
@@ -284,15 +276,14 @@ impl Shell {
                     .text_xs()
                     .text_color(if running { t.danger } else { t.accent })
                     .hover(|s| s.bg(t.row_active))
-                    .on_click(move |_, _, cx| {
-                        session_btn.update(cx, |s, cx| {
-                            if let Some(id) = running_id {
-                                s.stop_forward(id, cx);
-                            } else {
-                                s.add_forward(fwd_start.clone(), cx);
-                            }
-                        });
-                    })
+                    .on_click(cx.listener(move |shell, _, _, cx| {
+                        shell.toggle_shared_forward(
+                            owner.clone(),
+                            &fwd_start,
+                            running_id,
+                            cx,
+                        );
+                    }))
                     .child(if running { tr("Stop") } else { tr("Start") }),
             )
             .when(saved, |el| {

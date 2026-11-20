@@ -43,6 +43,8 @@ actions!(
 
 #[path = "shell_broadcast.rs"]
 mod broadcast_ui;
+#[path = "shell_forwards_shared.rs"]
+mod forwards_shared;
 #[path = "shell_forwards.rs"]
 mod forwards_ui;
 #[path = "shell_sftp.rs"]
@@ -165,6 +167,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
                 broadcast: None,
                 broadcast_picker: None,
                 panels: Default::default(),
+                forward_claims: Vec::new(),
                 active: 0,
                 split_preview: None,
                 split_ratio_dirty: false,
@@ -267,6 +270,8 @@ pub struct Shell {
     broadcast: Option<broadcast_ui::Broadcast>,
     broadcast_picker: Option<broadcast_ui::BroadcastPicker>,
     panels: forwards_ui::Panels,
+    /// Forwards a session has been asked to start and has not finished yet.
+    forward_claims: Vec<forwards_shared::Claim>,
     active: usize,
     /// The pane half a dragged tab or pane would split into, while the pointer is over it.
     split_preview: Option<split_drag::SplitPreview>,

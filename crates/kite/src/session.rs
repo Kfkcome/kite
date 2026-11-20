@@ -442,7 +442,7 @@ impl Session {
                 self.ended_at = None;
                 self.ever_connected = true;
                 self.backoff.reset();
-                self.start_spec_forwards(cx);
+                self.note_connected(cx);
                 self.offer_save(cx);
                 cx.notify();
             }
@@ -452,7 +452,7 @@ impl Session {
                 reason,
             } => {
                 self.status = Status::Closed;
-                self.forget_forwards();
+                self.note_disconnected(cx);
                 self.release_remote_modes(cx);
                 self.ended_at = Some(std::time::Instant::now());
                 self.login = None;
@@ -714,7 +714,7 @@ mod cwd;
 #[path = "session_vault.rs"]
 mod vault;
 
-pub use actions::SessionNote;
+pub use actions::{HostKey, SessionNote};
 
 /// A closed tab reconnects on Enter only, so a stray keystroke into a dead tab does not dial
 /// the server again. Enter arrives as CR from both the main and the keypad key.

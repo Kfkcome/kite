@@ -297,6 +297,14 @@ impl Shell {
         if keep >= self.tabs.len() {
             return;
         }
+        let dying: Vec<_> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(ix, _)| *ix != keep)
+            .flat_map(|(_, tab)| tab.panes.iter().map(|pane| pane.session.clone()))
+            .collect();
+        self.migrate_forwards(&dying, cx);
         let kept = self.tabs.remove(keep);
         self.tabs = vec![kept];
         self.sync_broadcast(cx);

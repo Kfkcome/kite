@@ -216,6 +216,12 @@ impl Shell {
             return;
         }
         self.renaming = None;
+        let dying: Vec<_> = self.tabs[ix]
+            .panes
+            .iter()
+            .map(|pane| pane.session.clone())
+            .collect();
+        self.migrate_forwards(&dying, cx);
         self.tabs.remove(ix);
         self.sync_broadcast(cx);
         if self.tabs.is_empty() {
@@ -313,12 +319,24 @@ impl Shell {
             return;
         };
         let next = if at > 0 { order[at - 1] } else { order[1] };
-        let tree = std::mem::replace(&mut tab.tree, Node::Leaf(tab.focused));
-        let Some(rest) = tree.remove(tab.focused) else {
+        let focused = tab.focused;
+        let tree = std::mem::replace(&mut tab.tree, Node::Leaf(focused));
+        let Some(rest) = tree.remove(focused) else {
             return;
         };
+        let dying = tab
+            .panes
+            .iter()
+            .find(|pane| pane.id == focused)
+            .map(|pane| pane.session.clone());
         tab.tree = rest;
-        tab.panes.retain(|p| p.id != tab.focused);
+        if let Some(session) = dying {
+            self.migrate_forwards(std::slice::from_ref(&session), cx);
+        }
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        tab.panes.retain(|pane| pane.id != focused);
         tab.focused = next;
         self.focus_front_pane(window, cx);
         self.close_orphan_panels(window, cx);

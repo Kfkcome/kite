@@ -160,7 +160,7 @@ impl Shell {
             });
             return None;
         };
-        let forwards_count = session.read(cx).active_forwards().len();
+        let forwards_count = self.shared_forward_count(&session, cx);
         let sftp_open = self.panels.sftp.is_some();
         let theme = self.theme;
         self.status_bar.update(cx, |bar, _| {

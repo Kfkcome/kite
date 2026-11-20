@@ -14,7 +14,7 @@ use crate::connections;
 use crate::forward_spec;
 use crate::i18n::{fill, tr};
 use crate::keymap::{self, Keymap, ShortcutId};
-use crate::session::{Session, SessionNote, Status};
+use crate::session::{Session, SessionNote};
 use crate::text_input::{InputColors, TextInput};
 
 actions!(tern, [FillPassword]);
@@ -37,6 +37,8 @@ pub(super) struct TunnelRow {
     pub forward: Forward,
     pub running_id: Option<u64>,
     pub bound_port: Option<u16>,
+    /// The session whose listener this row stops. `None` while the forward is not running.
+    pub owner: Option<Entity<Session>>,
     pub saved: bool,
     pub auto_start: bool,
 }
@@ -188,60 +190,6 @@ impl Shell {
         cx.notify();
     }
 
-    pub(super) fn tunnel_rows(
-        &self,
-        session: &Entity<Session>,
-        host_alias: &str,
-        cx: &gpui::App,
-    ) -> Vec<TunnelRow> {
-        let active = session.read(cx).active_forwards();
-        let conn = self.connections.iter().find(|c| c.name == host_alias);
-        let saved: Vec<Forward> = conn
-            .map(|c| {
-                c.forwards
-                    .iter()
-                    .filter_map(|s| forward_spec::parse(s).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let manual: Vec<Forward> = conn
-            .map(|c| {
-                c.manual_forwards
-                    .iter()
-                    .filter_map(|s| forward_spec::parse(s).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut rows: Vec<TunnelRow> = active
-            .iter()
-            .map(|info| {
-                let is_saved = saved.contains(&info.forward);
-                TunnelRow {
-                    forward: info.forward.clone(),
-                    running_id: Some(info.id),
-                    bound_port: Some(info.bound_port),
-                    saved: is_saved,
-                    auto_start: is_saved && !manual.contains(&info.forward),
-                }
-            })
-            .collect();
-
-        for fwd in saved {
-            if !rows.iter().any(|r| r.forward == fwd) {
-                let auto_start = !manual.contains(&fwd);
-                rows.push(TunnelRow {
-                    forward: fwd,
-                    running_id: None,
-                    bound_port: None,
-                    saved: true,
-                    auto_start,
-                });
-            }
-        }
-        rows
-    }
-
     pub(super) fn add_panel_forward(&mut self, cx: &mut Context<Self>) {
         let Some(panel) = self.panels.forwards.as_mut() else {
             return;
@@ -269,7 +217,8 @@ impl Shell {
         let Some(host_alias) = host_alias else {
             return;
         };
-        if session.read(cx).status != Status::Connected {
+        let taken = self.forward_taken(&session, &forward, cx);
+        if !taken && self.connected_session(&session, cx).is_none() {
             if let Some(panel) = self.panels.forwards.as_mut() {
                 panel.error = Some(tr("Not connected.").into());
             }
@@ -287,54 +236,9 @@ impl Shell {
         if save_to_host {
             self.save_host_forward(&host_alias, &forward, auto_start, cx);
         }
-        session.update(cx, |s, cx| s.add_forward(forward, cx));
-    }
-
-    pub(super) fn start_all_panel_forwards(&mut self, cx: &mut Context<Self>) {
-        let Some(panel) = self.panels.forwards.as_ref() else {
-            return;
-        };
-        let session = panel.session.clone();
-        if session.read(cx).status != Status::Connected {
-            if let Some(panel) = self.panels.forwards.as_mut() {
-                panel.error = Some(tr("Not connected.").into());
-            }
-            return cx.notify();
+        if !taken {
+            self.launch_preferred(&session, std::slice::from_ref(&forward), cx);
         }
-        let host_alias = self
-            .tab_for_session(&session)
-            .and_then(|t| t.panes.iter().find(|p| p.session == session))
-            .map(|p| p.alias.clone())
-            .unwrap_or_default();
-        let to_start: Vec<Forward> = self
-            .tunnel_rows(&session, &host_alias, cx)
-            .into_iter()
-            .filter(|r| r.running_id.is_none())
-            .map(|r| r.forward)
-            .collect();
-        session.update(cx, |s, cx| {
-            for fwd in to_start {
-                s.add_forward(fwd, cx);
-            }
-        });
-    }
-
-    pub(super) fn stop_all_panel_forwards(&mut self, cx: &mut Context<Self>) {
-        let Some(panel) = self.panels.forwards.as_ref() else {
-            return;
-        };
-        let session = panel.session.clone();
-        let ids: Vec<u64> = session
-            .read(cx)
-            .active_forwards()
-            .into_iter()
-            .map(|f| f.id)
-            .collect();
-        session.update(cx, |s, cx| {
-            for id in ids {
-                s.stop_forward(id, cx);
-            }
-        });
     }
 
     pub(super) fn save_host_forward(
@@ -535,11 +439,21 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         match note {
-            SessionNote::ForwardFailed { forward, error } => self.notify_toast(
-                ToastKind::Critical,
-                fill("Port forward {} failed: {}", &[forward, error]),
-                cx,
-            ),
+            SessionNote::Connected => self.autostart_forwards(session, cx),
+            SessionNote::Disconnected { forwards } => self.migrate_released(session, forwards, cx),
+            SessionNote::ForwardStarted { forward } => self.finish_claim(session, forward),
+            SessionNote::ForwardFailed { forward, error } => {
+                self.finish_claim(session, forward);
+                if self.failure_already_covered(session, forward, cx) {
+                    return;
+                }
+                let shown = forward.to_string();
+                self.notify_toast(
+                    ToastKind::Critical,
+                    fill("Port forward {} failed: {}", &[&shown, error]),
+                    cx,
+                );
+            }
             SessionNote::PasswordPrompt => {
                 let in_front = self.settings_page.is_none()
                     && self
