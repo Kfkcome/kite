@@ -27,6 +27,25 @@ All notable changes to tern are recorded here. The format follows [Keep a Change
 
 - Dependencies updated past RUSTSEC-2026-0383 (`webpki-root-certs` trusted distrusted emSign intermediates), RUSTSEC-2026-0385 and -0387 (timing leaks in `ctutils` and `crypto-bigint`) and RUSTSEC-2026-0386 (`tokio` `AsyncFd` I/O safety), and off the yanked `async-executor` 1.14.0 and `crypto-bigint` 0.7.5.
 
+## [0.2.0] - 2026-11-20
+
+### Added
+
+- **Workspace Layouts (`Cmd+S` / `Ctrl+Shift+S`)**: save, update, rename, and remove single-tab split layouts (`layouts.json`) with immediate SSH dialing on open, missing-host fallback toasts, `Cmd+K` picker integration, and GitHub sync support.
+- **Docked Sidebar Layouts Pane**: fixed bottom `Layouts` section with an independent scroll view and a draggable row-resize splitter persisted in `settings.json`.
+- **Sidebar Host Drag-and-Drop & Empty Groups**: drag hosts into, between, or out of groups; right-click to create empty groups, rename/remove groups, and move hosts.
+- **Local Terminal CWD Restore**: restarted local terminal tabs reopen in each shell's last working directory (with `$HOME` fallback), while newly opened local terminals still start in `$HOME`.
+
+### Changed
+
+- **Performance & Rendering**: added per-row shaping cache, isolated the status bar from terminal frame invalidation, throttled cursor/scrollbar timers, and pruned wallpaper/history work.
+- Cleaned up remaining visible `tern` branding across UI strings, macOS menus, vault prompts, and Linux `.desktop` metadata.
+
+### Fixed
+
+- **Host-Shared Port Forwards**: share active forwards across all connected tabs/panes of the same target host, sync status/controls across tabs, and hand off active tunnels to surviving sessions on close or disconnect.
+- **TUI Scroll Jitter**: separate mouse-reporting / alternate-scroll fractional accumulators from smooth sub-line viewport offsets and clamp sub-line offsets to zero in `ALT_SCREEN` and `MOUSE_MODE`.
+
 ## [0.1.3] - 2026-11-19
 
 ### Added

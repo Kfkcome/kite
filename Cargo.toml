@@ -5,7 +5,7 @@ members = ["crates/*"]
 exclude = ["vendor"]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.99"
@@ -13,10 +13,10 @@ repository = "https://github.com/Kfkcome/kite"
 
 [workspace.dependencies]
 ureq = { version = "3", default-features = false, features = ["native-tls", "json"] }
-kite-ssh = { path = "crates/kite-ssh", version = "0.1.3" }
-kite-sync = { path = "crates/kite-sync", version = "0.1.3" }
-kite-term = { path = "crates/kite-term", version = "0.1.3" }
-kite-vault = { path = "crates/kite-vault", version = "0.1.3" }
+kite-ssh = { path = "crates/kite-ssh", version = "0.2.0" }
+kite-sync = { path = "crates/kite-sync", version = "0.2.0" }
+kite-term = { path = "crates/kite-term", version = "0.2.0" }
+kite-vault = { path = "crates/kite-vault", version = "0.2.0" }
 # Wallpaper decoding; the same 0.25 gpui renders with, so no second copy is built.
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 # Exact pin: russh pins the same pre-release, so kite-vault shares its copy.
