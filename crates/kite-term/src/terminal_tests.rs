@@ -207,6 +207,36 @@ fn the_cursor_line_is_what_precedes_the_cursor_on_its_row() {
     assert!(!t.cursor_line_ends_with(':'));
 }
 
+#[test]
+fn hidden_cursor_keeps_an_ime_cell_until_it_scrolls_out() {
+    let mut t = Terminal::with_scrollback(80, 24, 50);
+    // CUP is 1-based: row 22, column 3 is viewport (column 2, row 21).
+    t.process(b"\x1b[22;3H");
+    assert_eq!(t.cursor().map(|c| (c.col, c.row)), Some((2, 21)));
+    assert_eq!(t.ime_cursor(), Some((2, 21)));
+
+    t.process(b"\x1b[?25l");
+    assert_eq!(t.cursor(), None);
+    assert_eq!(t.ime_cursor(), Some((2, 21)));
+
+    for _ in 0..30 {
+        t.process(b"\r\n");
+    }
+    t.process(b"\x1b[?25l\x1b[22;3H");
+    assert_eq!(t.cursor(), None);
+    assert_eq!(t.ime_cursor(), Some((2, 21)));
+
+    let offset = t.history_size();
+    assert!(
+        offset > 21,
+        "history {offset} cannot push row 21 off a 24-row viewport"
+    );
+    t.scroll(offset as i32);
+    assert_eq!(t.display_offset(), offset);
+    assert_eq!(t.ime_cursor(), None);
+    assert_eq!(t.cursor(), None);
+}
+
 mod fuzz {
     use proptest::prelude::*;
 

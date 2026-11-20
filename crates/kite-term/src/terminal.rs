@@ -663,6 +663,22 @@ impl Terminal {
         })
     }
 
+    /// Input-method anchor `(column, row)` in viewport coordinates.
+    ///
+    /// [`Self::cursor`] is `None` while the hardware cursor is hidden
+    /// (`CursorShape::Hidden`, DECTCEM `\x1b[?25l`). A TUI still moves the VT
+    /// cursor to its prompt and draws its own block, so composition follows
+    /// that cell. `None` only when the cell is outside the visible viewport.
+    pub fn ime_cursor(&self) -> Option<(usize, usize)> {
+        let content = self.term.renderable_content();
+        let Point { line, column } = content.cursor.point;
+        let row = line.0 + self.display_offset() as i32;
+        if row < 0 || row >= self.rows() as i32 {
+            return None;
+        }
+        Some((column.0, row as usize))
+    }
+
     fn grid_row_text(&self, viewport_row: usize, max_col: usize) -> String {
         let line = Line(viewport_row as i32 - self.display_offset() as i32);
         let row = &self.term.grid()[line];

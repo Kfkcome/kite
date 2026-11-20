@@ -324,7 +324,9 @@ fn paint_ime_preedit(
     let Some(text) = view.read(cx).ime_preedit().map(str::to_string) else {
         return;
     };
-    let Some(cursor) = view.read(cx).terminal.read(cx).cursor() else {
+    // `cursor()` is None while DECTCEM hides the hardware cursor. The VT cell
+    // is still where the composition belongs.
+    let Some((col, row)) = view.read(cx).terminal.read(cx).ime_cursor() else {
         return;
     };
     let theme = view.read(cx).terminal.read(cx).theme().clone();
@@ -347,8 +349,8 @@ fn paint_ime_preedit(
         None,
     );
     let top_left = point(
-        origin.x + cell_w * cursor.col as f32,
-        origin.y + line_h * cursor.row as f32,
+        origin.x + cell_w * col as f32,
+        origin.y + line_h * row as f32,
     );
     let mut bg = theme.background;
     bg.a = 1.0;

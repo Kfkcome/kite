@@ -13,7 +13,7 @@ use gpui::{
     UTF16Selection, Window, point, px, size,
 };
 
-use super::TerminalView;
+use super::{GridGeometry, TerminalView};
 
 #[derive(Debug, Default)]
 pub(super) struct Composition {
@@ -115,6 +115,35 @@ impl Composition {
 
 fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
+}
+
+/// Rectangle the input method uses to place its candidate window.
+///
+/// `cursor` is the viewport cell from [`crate::terminal::Terminal::ime_cursor`].
+/// A cell that has scrolled away yields no rectangle, so the window is not
+/// pinned to the corner of the pane. The column is clamped into the grid: a
+/// composition caret past the right margin stays on the last cell.
+fn ime_candidate_bounds(
+    geo: GridGeometry,
+    cursor: Option<(usize, usize)>,
+    range_utf16: Range<usize>,
+) -> Option<Bounds<Pixels>> {
+    if geo.cols == 0 || geo.rows == 0 {
+        return None;
+    }
+    let (col, row) = cursor?;
+    let start = range_utf16.start;
+    let span = range_utf16.end.saturating_sub(start).max(1);
+    let anchor_col = col
+        .saturating_add(start)
+        .min(usize::from(geo.cols.saturating_sub(1)));
+    Some(Bounds::new(
+        point(
+            geo.origin.x + px(geo.cell_w * anchor_col as f32),
+            geo.origin.y + px(geo.line_h * row as f32),
+        ),
+        size(px(geo.cell_w * span as f32), px(geo.line_h)),
+    ))
 }
 
 fn byte_at(text: &str, utf16_index: usize) -> usize {
@@ -233,21 +262,8 @@ impl EntityInputHandler for TerminalView {
         cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let geo = self.geometry?;
-        let (col, row) = self
-            .terminal
-            .read(cx)
-            .cursor()
-            .map(|cursor| (cursor.col, cursor.row))
-            .unwrap_or((0, 0));
-        let start = range_utf16.start;
-        let span = range_utf16.end.saturating_sub(range_utf16.start).max(1);
-        Some(Bounds::new(
-            point(
-                geo.origin.x + px(geo.cell_w * col.saturating_add(start) as f32),
-                geo.origin.y + px(geo.line_h * row as f32),
-            ),
-            size(px(geo.cell_w * span as f32), px(geo.line_h)),
-        ))
+        let cursor = self.terminal.read(cx).ime_cursor();
+        ime_candidate_bounds(geo, cursor, range_utf16)
     }
 
     fn character_index_for_point(
@@ -295,5 +311,40 @@ mod tests {
         ime.mark(None, "😀", None);
         assert_eq!(ime.marked_utf16(), Some(0..2));
         assert_eq!(ime.commit(Some(0..2), "x"), b"x");
+    }
+
+    fn grid(cols: u16, rows: u16) -> GridGeometry {
+        GridGeometry {
+            bounds: Bounds::new(point(px(0.0), px(0.0)), size(px(800.0), px(600.0))),
+            origin: point(px(8.0), px(16.0)),
+            cell_w: 10.0,
+            line_h: 20.0,
+            cols,
+            rows,
+        }
+    }
+
+    #[test]
+    fn candidate_bounds_follow_the_ime_cell_and_clamp_at_the_right_margin() {
+        let geo = grid(80, 24);
+        assert_eq!(
+            ime_candidate_bounds(geo, Some((2, 21)), 0..1),
+            Some(Bounds::new(
+                point(px(28.0), px(436.0)),
+                size(px(10.0), px(20.0)),
+            ))
+        );
+        // Column 78 plus a caret 5 cells into the composition is 83, past the
+        // last cell. The window stays on column 79 instead of leaving the pane.
+        assert_eq!(
+            ime_candidate_bounds(geo, Some((78, 3)), 5..8),
+            Some(Bounds::new(
+                point(px(798.0), px(76.0)),
+                size(px(30.0), px(20.0)),
+            ))
+        );
+        assert_eq!(ime_candidate_bounds(geo, None, 0..1), None);
+        assert_eq!(ime_candidate_bounds(grid(0, 24), Some((0, 0)), 0..1), None);
+        assert_eq!(ime_candidate_bounds(grid(80, 0), Some((0, 0)), 0..1), None);
     }
 }
