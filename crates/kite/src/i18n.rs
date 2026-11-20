@@ -95,7 +95,7 @@ const ZH: &[(&str, &str)] = &[
     ("Add", "添加"),
     ("Add in Settings", "在设置里添加"),
     ("Advanced", "高级"),
-    ("Already in tern", "已在 kite 中"),
+    ("Already in kite", "已在 kite 中"),
     ("Already up to date", "已经是最新"),
     (
         "An OpenSSH private key without its own passphrase",
@@ -170,7 +170,7 @@ const ZH: &[(&str, &str)] = &[
     ),
     (
         "Copies the checked hosts into kite once. The file is never read again or changed.",
-        "把勾选的主机复制进 tern，只此一次。之后不再读取或修改该文件。",
+        "把勾选的主机复制进 kite，只此一次。之后不再读取或修改该文件。",
     ),
     ("Copy", "复制"),
     ("Copy on select", "选中即复制"),
@@ -254,8 +254,8 @@ const ZH: &[(&str, &str)] = &[
     ("Give the key a name first.", "请先给密钥起个名字。"),
     ("Group", "分组"),
     ("Halftone", "半调"),
+    ("Hide kite", "隐藏 kite"),
     ("Hide Others", "隐藏其他"),
-    ("Hide tern", "隐藏 tern"),
     (
         "Hold the connecting pulse and sidebar slide still. On by itself when macOS Reduce motion is on",
         "连接时的呼吸和侧边栏滑动保持静止。macOS 的「减弱动态效果」打开时也会自动生效",
@@ -400,7 +400,7 @@ const ZH: &[(&str, &str)] = &[
     ),
     (
         "Once a day, ask GitHub for a newer release; kite never installs one",
-        "每天向 GitHub 询问一次是否有新版本；tern 不会自动安装",
+        "每天向 GitHub 询问一次是否有新版本；kite 不会自动安装",
     ),
     (
         "One private gist on your GitHub account. GitHub stores only encrypted data.",
@@ -445,7 +445,7 @@ const ZH: &[(&str, &str)] = &[
     ("Public key copied", "已复制公钥"),
     ("Public key of {}", "{} 的公钥"),
     ("Quit", "退出"),
-    ("Quit tern", "退出 tern"),
+    ("Quit kite", "退出 kite"),
     ("Quit, hide, minimise", "退出、隐藏、最小化"),
     ("Recent", "最近"),
     ("Reconnect", "重新连接"),
@@ -471,7 +471,7 @@ const ZH: &[(&str, &str)] = &[
     ),
     ("Save", "保存"),
     ("Saved {}", "已保存 {}"),
-    ("Saved in tern", "保存在 kite 里"),
+    ("Saved in kite", "保存在 kite 里"),
     (
         "Saved passwords and keys appear here",
         "保存的密码和密钥会显示在这里",

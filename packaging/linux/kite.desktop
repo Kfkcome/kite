@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=tern
+Name=kite
 GenericName=SSH Terminal
 Comment=A fast, low-memory SSH terminal
-Exec=tern
-Icon=tern
+Exec=kite
+Icon=kite
 Terminal=false
 Categories=Network;RemoteAccess;TerminalEmulator;
 Keywords=ssh;terminal;sftp;
-StartupWMClass=tern
+StartupWMClass=kite

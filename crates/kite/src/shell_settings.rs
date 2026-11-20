@@ -557,7 +557,7 @@ impl Shell {
             .when_some(self.store_error.clone(), |el, e| {
                 el.child(w::page_subtitle(&t, e).text_color(t.danger))
             })
-            .child(w::section(&t, tr("Saved in tern"), list))
+            .child(w::section(&t, tr("Saved in kite"), list))
     }
 }
 

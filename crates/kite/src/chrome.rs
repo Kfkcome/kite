@@ -40,11 +40,11 @@ pub fn install_menus(cx: &mut App) {
             items: vec![
                 MenuItem::action(crate::i18n::tr("Settings…"), crate::shell::OpenSettings),
                 MenuItem::separator(),
-                MenuItem::action(crate::i18n::tr("Hide tern"), Hide),
+                MenuItem::action(crate::i18n::tr("Hide kite"), Hide),
                 MenuItem::action(crate::i18n::tr("Hide Others"), HideOthers),
                 MenuItem::action(crate::i18n::tr("Show All"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action(crate::i18n::tr("Quit tern"), Quit),
+                MenuItem::action(crate::i18n::tr("Quit kite"), Quit),
             ],
             disabled: false,
         },

@@ -205,7 +205,7 @@ impl Shell {
                             .text_xs()
                             .text_color(t.muted)
                             .child(SharedString::from(if off {
-                                tr("Already in tern").to_owned()
+                                tr("Already in kite").to_owned()
                             } else {
                                 crate::sidebar::address(&r.host)
                             })),

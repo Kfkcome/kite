@@ -46,7 +46,7 @@ pub(super) enum Flow {
     ApproveCommand(Prompt),
     /// The same for a password fill; the number is the screen it was asked on.
     ApproveFill(String, u64),
-    /// "Save … in tern's vault? (yes/no)".
+    /// "Save … in kite's vault? (yes/no)".
     OfferSave(Key, SecretString),
     NewPassphrase(Key, SecretString),
     RepeatPassphrase(Key, SecretString, SecretString),
@@ -238,7 +238,7 @@ impl Session {
                 if let Some((key, secret)) = s.typed.take() {
                     let lead = if s.ends_line { "" } else { "\r\n" };
                     let text = format!(
-                        "{lead}Save {} in tern's vault? (yes/no) ",
+                        "{lead}Save {} in kite's vault? (yes/no) ",
                         keeper::describe(&key)
                     );
                     s.ask_local(&text, true, Flow::OfferSave(key, secret), cx);
