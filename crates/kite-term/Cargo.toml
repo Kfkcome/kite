@@ -11,6 +11,9 @@ alacritty_terminal = "0.26"
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 unicode-width = "0.2"
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["poll"] }
+
 [dev-dependencies]
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders"] }
 async-channel = "2"

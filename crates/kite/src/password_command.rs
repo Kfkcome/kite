@@ -191,11 +191,16 @@ pub fn run(command: &str, timeout: Duration) -> Result<SecretString, Failure> {
         }
     };
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    for (is_out, buf) in rx.iter().take(2) {
-        if is_out {
-            out = buf;
-        } else {
-            err = buf;
+    for _ in 0..2 {
+        let left = timeout.saturating_sub(started.elapsed());
+        match rx.recv_timeout(left) {
+            Ok((true, buf)) => out = buf,
+            Ok((false, buf)) => err = buf,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                out.fill(0);
+                return Err(Failure::Timeout);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     let stderr = String::from_utf8_lossy(&err).into_owned();
@@ -339,6 +344,15 @@ mod tests {
         assert_eq!(f, Failure::Timeout);
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(f.line(), "password command failed (timeout 20s)");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_grandchild_keeping_pipe_open_still_times_out() {
+        let started = Instant::now();
+        let f = run("sleep 30 &", Duration::from_millis(250)).unwrap_err();
+        assert_eq!(f, Failure::Timeout);
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

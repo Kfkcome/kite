@@ -46,6 +46,7 @@ All notable changes to tern are recorded here. The format follows [Keep a Change
 - **Host-Shared Port Forwards**: share active forwards across all connected tabs/panes of the same target host, sync status/controls across tabs, and hand off active tunnels to surviving sessions on close or disconnect.
 - **TUI Scroll Jitter**: separate mouse-reporting / alternate-scroll fractional accumulators from smooth sub-line viewport offsets and clamp sub-line offsets to zero in `ALT_SCREEN` and `MOUSE_MODE`.
 - **IME Cursor Tracking**: follow the VT cursor cell (`ime_cursor`) for preedit painting and candidate box bounds even when TUI apps hide the hardware cursor via DECTCEM (`\x1b[?25l`).
+- **Long-Session Hang & Blocking Fixes**: set `O_NONBLOCK` on `alacritty_terminal`'s `SIGCHLD` pipe sender and detach the unused signal pipe in `LocalPty` so macOS never deadlocks inside `__sendto` after 8,192 child exits; offload `LocalPty` writes to a nonblocking writer thread; skip idle `ps`/`lsof` CWD polling, pass `-b -w -n -P` to `lsof`, await async `tokio::sync::oneshot`, and coalesce close/quit CWD flushes; enforce remaining timeout on `password_command` stdout/stderr pipes; and add a 30s global timeout to GitHub sync HTTP requests.
 
 ## [0.1.3] - 2026-11-19
 

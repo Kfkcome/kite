@@ -23,7 +23,7 @@ base64 = "0.23"
 chrono.workspace = true
 ureq.workspace = true
 image.workspace = true
-tokio = { version = "1", features = ["rt-multi-thread", "process", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "process", "sync", "time"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "env-filter", "registry"] }

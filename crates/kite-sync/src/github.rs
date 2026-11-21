@@ -181,6 +181,7 @@ impl UreqHttp {
                     .root_certs(ureq::tls::RootCerts::PlatformVerifier)
                     .build(),
             )
+            .timeout_global(Some(std::time::Duration::from_secs(30)))
             .http_status_as_error(true)
             .build();
         Self {

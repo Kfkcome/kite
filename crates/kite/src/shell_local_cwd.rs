@@ -4,9 +4,11 @@
 //! closing the window drops the PTY. The directory is therefore read inside the
 //! callback and inside `on_window_should_close`, while the shell is still alive.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{Context, Window};
 
@@ -14,16 +16,22 @@ use super::Shell;
 use crate::platform::SshRuntime;
 
 const REFRESH: Duration = Duration::from_secs(5);
+const FLUSH_COALESCE: Duration = Duration::from_secs(1);
 
 impl Shell {
     pub(super) fn install_local_cwd_hooks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let last_flush = Rc::new(Cell::new(None::<Instant>));
+        let close_flush = Rc::clone(&last_flush);
         let weak = cx.weak_entity();
         window.on_window_should_close(cx, move |_window, cx| {
-            let _ = weak.update(cx, |shell, cx| shell.flush_local_cwds_blocking(cx));
+            let _ = weak.update(cx, |shell, cx| {
+                shell.flush_local_cwds_coalesced(&close_flush, cx);
+            });
             true
         });
-        cx.on_app_quit(|shell, cx| {
-            shell.flush_local_cwds_blocking(cx);
+        let quit_flush = Rc::clone(&last_flush);
+        cx.on_app_quit(move |shell, cx| {
+            shell.flush_local_cwds_coalesced(&quit_flush, cx);
             async {}
         })
         .detach();
@@ -34,11 +42,17 @@ impl Shell {
         })
         .detach();
         cx.spawn(async move |this, cx| {
+            let mut last_activity: Vec<(u32, u64)> = Vec::new();
             loop {
-                let stop = this
-                    .update(cx, |shell, cx| shell.refresh_local_cwds(cx))
-                    .is_err();
-                if stop {
+                let outcome = this.update(cx, |shell, cx| {
+                    let activity = local_activity(shell, cx);
+                    let dirty = activity != last_activity;
+                    if dirty {
+                        last_activity = activity;
+                        shell.refresh_local_cwds(cx);
+                    }
+                });
+                if outcome.is_err() {
                     break;
                 }
                 cx.background_executor().timer(REFRESH).await;
@@ -54,10 +68,7 @@ impl Shell {
         }
         let handle = SshRuntime::handle(cx);
         cx.spawn(async move |this, cx| {
-            let found = cx
-                .background_executor()
-                .spawn(async move { crate::local_cwd::query_blocking(&handle, &pids) })
-                .await;
+            let found = crate::local_cwd::query(&handle, &pids).await;
             let _ = this.update(cx, |shell, cx| {
                 if apply_local_cwds(shell, &found, cx) {
                     shell.persist_tabs();
@@ -65,6 +76,23 @@ impl Shell {
             });
         })
         .detach();
+    }
+
+    fn flush_local_cwds_coalesced(
+        &mut self,
+        last_flush: &Cell<Option<Instant>>,
+        cx: &mut Context<Self>,
+    ) {
+        let now = Instant::now();
+        if last_flush
+            .get()
+            .is_some_and(|prev| now.saturating_duration_since(prev) < FLUSH_COALESCE)
+        {
+            self.persist_tabs();
+            return;
+        }
+        last_flush.set(Some(now));
+        self.flush_local_cwds_blocking(cx);
     }
 
     /// Queries every live local shell, then writes `tabs.json`.
@@ -80,6 +108,18 @@ impl Shell {
         }
         self.persist_tabs();
     }
+}
+
+fn local_activity(shell: &Shell, cx: &gpui::App) -> Vec<(u32, u64)> {
+    shell
+        .tabs
+        .iter()
+        .flat_map(|tab| &tab.panes)
+        .filter_map(|pane| {
+            let session = pane.session.read(cx);
+            session.local_pid().map(|pid| (pid, session.output_seq()))
+        })
+        .collect()
 }
 
 fn local_root_pids(shell: &Shell, cx: &gpui::App) -> Vec<u32> {

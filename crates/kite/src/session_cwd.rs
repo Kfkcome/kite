@@ -19,6 +19,11 @@ impl Session {
         self.link.local.as_ref().and_then(|pty| pty.child_pid())
     }
 
+    /// Monotonic count of output chunks processed by this session.
+    pub(crate) fn output_seq(&self) -> u64 {
+        self.output_seq
+    }
+
     /// Directory the local shell was last known to be in.
     pub(crate) fn local_cwd(&self) -> Option<&Path> {
         self.link.cwd.as_deref()

@@ -102,8 +102,8 @@ fn get_pw_entry(buf: &mut [i8; 1024]) -> Result<Passwd<'_>> {
 pub struct Pty {
     child: Child,
     file: File,
-    signals: UnixStream,
-    sig_id: SigId,
+    signals: Option<UnixStream>,
+    sig_id: Option<SigId>,
 }
 
 impl Pty {
@@ -113,6 +113,14 @@ impl Pty {
 
     pub fn file(&self) -> &File {
         &self.file
+    }
+
+    /// Detach the `SIGCHLD` self-pipe when the caller detects exit from the PTY master directly.
+    pub fn detach_signal_pipe(&mut self) {
+        if let Some(sig_id) = self.sig_id.take() {
+            unregister_signal(sig_id);
+        }
+        self.signals = None;
     }
 }
 
@@ -278,6 +286,9 @@ pub fn from_fd(config: &Options, window_id: u64, master: OwnedFd, slave: OwnedFd
     // Prepare signal handling before spawning child.
     let (signals, sig_id) = {
         let (sender, recv) = UnixStream::pair()?;
+        // Set O_NONBLOCK on the write end too: macOS XNU can block `send(..., MSG_DONTWAIT)` on
+        // a blocking AF_UNIX SOCK_STREAM once its 8 KiB buffer fills up inside `_sigtramp`.
+        sender.set_nonblocking(true)?;
 
         // Register the recv end of the pipe for SIGCHLD.
         let sig_id = signal_pipe::register(sigconsts::SIGCHLD, sender)?;
@@ -293,7 +304,7 @@ pub fn from_fd(config: &Options, window_id: u64, master: OwnedFd, slave: OwnedFd
                 set_nonblocking(master_fd);
             }
 
-            Ok(Pty { child, file: File::from(master), signals, sig_id })
+            Ok(Pty { child, file: File::from(master), signals: Some(signals), sig_id: Some(sig_id) })
         },
         Err(err) => Err(Error::new(
             err.kind(),
@@ -314,7 +325,9 @@ impl Drop for Pty {
         }
 
         // Clear signal-hook handler.
-        unregister_signal(self.sig_id);
+        if let Some(sig_id) = self.sig_id.take() {
+            unregister_signal(sig_id);
+        }
 
         let _ = self.child.wait();
     }
@@ -336,13 +349,17 @@ impl EventedReadWrite for Pty {
             poll.add_with_mode(&self.file, interest, poll_opts)?;
         }
 
-        unsafe {
-            poll.add_with_mode(
-                &self.signals,
-                Event::readable(PTY_CHILD_EVENT_TOKEN),
-                PollMode::Level,
-            )
+        if let Some(signals) = &self.signals {
+            unsafe {
+                poll.add_with_mode(
+                    signals,
+                    Event::readable(PTY_CHILD_EVENT_TOKEN),
+                    PollMode::Level,
+                )?;
+            }
         }
+
+        Ok(())
     }
 
     #[inline]
@@ -355,17 +372,25 @@ impl EventedReadWrite for Pty {
         interest.key = PTY_READ_WRITE_TOKEN;
         poll.modify_with_mode(&self.file, interest, poll_opts)?;
 
-        poll.modify_with_mode(
-            &self.signals,
-            Event::readable(PTY_CHILD_EVENT_TOKEN),
-            PollMode::Level,
-        )
+        if let Some(signals) = &self.signals {
+            poll.modify_with_mode(
+                signals,
+                Event::readable(PTY_CHILD_EVENT_TOKEN),
+                PollMode::Level,
+            )?;
+        }
+
+        Ok(())
     }
 
     #[inline]
     fn deregister(&mut self, poll: &Arc<Poller>) -> Result<()> {
         poll.delete(&self.file)?;
-        poll.delete(&self.signals)
+        if let Some(signals) = &self.signals {
+            poll.delete(signals)?;
+        }
+
+        Ok(())
     }
 
     #[inline]
@@ -382,9 +407,10 @@ impl EventedReadWrite for Pty {
 impl EventedPty for Pty {
     #[inline]
     fn next_child_event(&mut self) -> Option<ChildEvent> {
+        let signals = self.signals.as_mut()?;
         // See if there has been a SIGCHLD.
         let mut buf = [0u8; 1];
-        if let Err(err) = self.signals.read(&mut buf) {
+        if let Err(err) = signals.read(&mut buf) {
             if err.kind() != ErrorKind::WouldBlock {
                 error!("Error reading from signal pipe: {err}");
             }

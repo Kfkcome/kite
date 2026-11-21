@@ -4096,6 +4096,7 @@ dependencies = [
  "async-channel",
  "gpui-pre",
  "gpui-pre-platform",
+ "nix 0.31.3",
  "proptest",
  "unicode-width",
 ]

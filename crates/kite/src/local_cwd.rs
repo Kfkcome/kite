@@ -30,6 +30,20 @@ pub(crate) fn restored_directory(saved: Option<&str>) -> Option<PathBuf> {
     path.is_dir().then_some(path)
 }
 
+/// Reads `pids` (PTY children) asynchronously on `handle` without blocking the caller's executor.
+pub(crate) async fn query(handle: &tokio::runtime::Handle, pids: &[u32]) -> HashMap<u32, PathBuf> {
+    if pids.is_empty() {
+        return HashMap::new();
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let pids = pids.to_vec();
+    handle.spawn(async move {
+        let found = query_with_timeout(pids).await;
+        let _ = tx.send(found);
+    });
+    rx.await.unwrap_or_default()
+}
+
 /// Reads `pids` (PTY children) without blocking the caller past [`QUERY_WAIT`].
 /// The map is keyed by those pids, not by the shell pid underneath `login`.
 pub(crate) fn query_blocking(
@@ -130,8 +144,11 @@ async fn lsof_cwds(pids: &[u32]) -> HashMap<u32, PathBuf> {
         .collect::<Vec<_>>()
         .join(",");
     let mut cmd = tokio::process::Command::new("/usr/sbin/lsof");
-    cmd.args(["-a", "-d", "cwd", "-Fn", "-p", &list])
-        .kill_on_drop(true);
+    // `-b -w` keeps `lsof` from blocking on stalled mounts; `-n -P` skips host/port lookups.
+    cmd.args([
+        "-b", "-w", "-n", "-P", "-a", "-d", "cwd", "-Fn", "-p", &list,
+    ])
+    .kill_on_drop(true);
     match cmd.output().await {
         Ok(out) => parse_lsof_cwd(&String::from_utf8_lossy(&out.stdout)),
         Err(error) => {

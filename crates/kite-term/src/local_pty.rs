@@ -4,19 +4,30 @@ use std::fs::File;
 use std::io;
 #[cfg(unix)]
 use std::io::Write as _;
+#[cfg(unix)]
+use std::os::fd::AsFd as _;
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(unix)]
+use std::sync::{Arc, Mutex, mpsc};
 
 #[cfg(unix)]
 use alacritty_terminal::event::{OnResize, WindowSize};
 #[cfg(unix)]
 use alacritty_terminal::tty::{self, Options, Pty};
 
+#[cfg(unix)]
+const WRITE_QUEUE_CAP: usize = 256;
+#[cfg(unix)]
+const WRITE_POLL_MS: u16 = 250;
+
 /// A spawned local login shell attached to a PTY.
 pub struct LocalPty {
     #[cfg(unix)]
-    writer: Mutex<Option<File>>,
+    writer_tx: Mutex<Option<mpsc::SyncSender<Vec<u8>>>>,
+    #[cfg(unix)]
+    closed: Arc<AtomicBool>,
     #[cfg(unix)]
     pty: Mutex<Option<Pty>>,
 }
@@ -30,10 +41,11 @@ impl std::fmt::Debug for LocalPty {
 #[cfg(unix)]
 impl Drop for LocalPty {
     fn drop(&mut self) {
-        // Close the cloned master fd first, then wait on the child off the UI thread
-        // (alacritty_terminal's `Pty::drop` calls `child.wait()` synchronously).
+        self.closed.store(true, Ordering::Relaxed);
+        // Drop the writer channel first so the background writer exits and releases its cloned fd,
+        // then wait on the child off the UI thread (Pty::drop calls child.wait() synchronously).
         let _ = self
-            .writer
+            .writer_tx
             .get_mut()
             .unwrap_or_else(|e| e.into_inner())
             .take();
@@ -41,6 +53,50 @@ impl Drop for LocalPty {
             std::thread::spawn(move || drop(pty));
         }
     }
+}
+
+#[cfg(unix)]
+fn wait_writable(file: &File) -> bool {
+    use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+    let mut fds = [PollFd::new(file.as_fd(), PollFlags::POLLOUT)];
+    match poll(&mut fds, PollTimeout::from(WRITE_POLL_MS)) {
+        Ok(0) => true,
+        Ok(_) => fds[0]
+            .revents()
+            .is_none_or(|ev| !ev.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL)),
+        Err(nix::errno::Errno::EINTR) => true,
+        Err(_) => false,
+    }
+}
+
+#[cfg(unix)]
+fn write_all_nonblocking(writer: &mut File, bytes: &[u8], closed: &AtomicBool) -> bool {
+    let mut pos = 0;
+    while pos < bytes.len() {
+        match writer.write(&bytes[pos..]) {
+            Ok(0) => return false,
+            Ok(n) => pos += n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                if closed.load(Ordering::Relaxed) || !wait_writable(writer) {
+                    return false;
+                }
+            }
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+#[cfg(unix)]
+fn spawn_writer(mut writer: File, rx: mpsc::Receiver<Vec<u8>>, closed: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        while let Ok(chunk) = rx.recv() {
+            if !write_all_nonblocking(&mut writer, &chunk, &closed) {
+                break;
+            }
+        }
+    });
 }
 
 impl LocalPty {
@@ -75,10 +131,17 @@ impl LocalPty {
             cell_width: 0,
             cell_height: 0,
         };
-        let pty = tty::new(&opts, size, 0)?;
+        let mut pty = tty::new(&opts, size, 0)?;
+        // LocalPty detects exit from PTY master EOF, so keeping an unread SIGCHLD socket pair
+        // would only let process-wide child exits fill its buffer.
+        pty.detach_signal_pipe();
         let writer = pty.file().try_clone()?;
+        let (tx, rx) = mpsc::sync_channel(WRITE_QUEUE_CAP);
+        let closed = Arc::new(AtomicBool::new(false));
+        spawn_writer(writer, rx, Arc::clone(&closed));
         Ok(Self {
-            writer: Mutex::new(Some(writer)),
+            writer_tx: Mutex::new(Some(tx)),
+            closed,
             pty: Mutex::new(Some(pty)),
         })
     }
@@ -129,18 +192,31 @@ impl LocalPty {
         ))
     }
 
-    /// Writes user input bytes to the local shell.
+    /// Queues user input bytes to be written to the local shell without blocking the caller.
     ///
     /// # Errors
-    /// Returns an error if the PTY is closed, the underlying write fails, or the platform is not Unix.
+    /// Returns an error if the PTY is closed, the bounded write queue is full, or the platform
+    /// is not Unix.
     #[cfg(unix)]
     pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
-        let mut guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(writer) = guard.as_mut() else {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "pty closed"));
+        let tx = {
+            let guard = self.writer_tx.lock().unwrap_or_else(|e| e.into_inner());
+            guard
+                .as_ref()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "pty closed"))?
+                .clone()
         };
-        writer.write_all(bytes)?;
-        writer.flush()
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        tx.try_send(bytes.to_vec()).map_err(|err| match err {
+            mpsc::TrySendError::Full(_) => {
+                io::Error::new(io::ErrorKind::WouldBlock, "pty write queue full")
+            }
+            mpsc::TrySendError::Disconnected(_) => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "pty closed")
+            }
+        })
     }
 
     #[cfg(not(unix))]
@@ -185,10 +261,11 @@ pub fn resolve_working_directory(requested: Option<&Path>) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::path::Path;
 
-    use super::resolve_working_directory;
+    use super::{LocalPty, resolve_working_directory};
 
     #[test]
     fn a_missing_or_empty_directory_falls_back_to_home() {
@@ -201,5 +278,15 @@ mod tests {
         );
         let dir = std::env::temp_dir();
         assert_eq!(resolve_working_directory(Some(&dir)), Some(dir));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_is_nonblocking_for_large_pastes() {
+        let pty = LocalPty::spawn(80, 24).expect("spawn local pty");
+        let payload = vec![b'a'; 16 * 1024];
+        let started = std::time::Instant::now();
+        pty.write(&payload).expect("queue large write");
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 }

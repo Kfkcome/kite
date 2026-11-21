@@ -42,4 +42,8 @@ modified by trimming or expanding, so a row has the same cells and the same `occ
 `src/term/cell.rs`
 - `LineLength::line_length` iterates `self.into_iter().rev()` instead of slicing `self[..]`.
 
-Not changed: public types and method signatures that tern-term calls, `Cargo.toml`, tests.
+`src/tty/unix.rs`
+- `from_fd` sets `O_NONBLOCK` on the `SIGCHLD` pipe sender before `signal_hook::low_level::pipe::register`, so macOS XNU cannot block inside `__sendto` if the socket buffer fills up.
+- `Pty::signals` and `Pty::sig_id` are stored as `Option`s and `Pty::detach_signal_pipe` unregisters and drops them for callers that monitor child exit from PTY master EOF instead of `next_child_event`.
+
+Not changed: existing public types and method signatures that kite-term calls, `Cargo.toml`, tests.
