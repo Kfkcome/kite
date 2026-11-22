@@ -136,6 +136,7 @@ impl TextInput {
     /// Byte offset in `content` → byte offset in what is drawn (one dot per character when
     /// masked).
     fn shown_offset(&self, offset: usize) -> usize {
+        let offset = clamp_boundary(&self.content, offset);
         if self.masked {
             self.content[..offset].chars().count() * DOT.len()
         } else {
@@ -146,7 +147,7 @@ impl TextInput {
     /// The inverse of [`Self::shown_offset`].
     fn content_offset(&self, shown: usize) -> usize {
         if !self.masked {
-            return shown;
+            return clamp_boundary(&self.content, shown);
         }
         let chars = shown / DOT.len();
         self.content
@@ -259,22 +260,27 @@ impl TextInput {
     /// A masked field never puts its secret on the clipboard.
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.masked && !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            let range = clamp_range(&self.content, &self.selected_range);
+            if !range.is_empty() {
+                cx.write_to_clipboard(ClipboardItem::new_string(self.content[range].to_string()));
+            }
         }
     }
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.masked && !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
-            self.replace_text_in_range(None, "", window, cx)
+            let range = clamp_range(&self.content, &self.selected_range);
+            self.selected_range = range.clone();
+            if !range.is_empty() {
+                cx.write_to_clipboard(ClipboardItem::new_string(self.content[range].to_string()));
+                self.replace_text_in_range(None, "", window, cx)
+            }
         }
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let offset = clamp_boundary(&self.content, offset);
         self.selected_range = offset..offset;
+        self.selection_reversed = false;
         cx.notify()
     }
 
@@ -305,6 +311,8 @@ impl TextInput {
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let offset = clamp_boundary(&self.content, offset);
+        self.selected_range = clamp_range(&self.content, &self.selected_range);
         if self.selection_reversed {
             self.selected_range.start = offset
         } else {
@@ -317,22 +325,8 @@ impl TextInput {
         cx.notify()
     }
 
-    fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-
-        for ch in self.content.chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += ch.len_utf16();
-            utf8_offset += ch.len_utf8();
-        }
-
-        utf8_offset
-    }
-
     fn offset_to_utf16(&self, offset: usize) -> usize {
+        let offset = clamp_boundary(&self.content, offset);
         let mut utf16_offset = 0;
         let mut utf8_count = 0;
 
@@ -348,11 +342,12 @@ impl TextInput {
     }
 
     fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
+        let range = clamp_range(&self.content, range);
         self.offset_to_utf16(range.start)..self.offset_to_utf16(range.end)
     }
 
     fn range_from_utf16(&self, range_utf16: &Range<usize>) -> Range<usize> {
-        self.offset_from_utf16(range_utf16.start)..self.offset_from_utf16(range_utf16.end)
+        utf16_range_to_utf8(&self.content, range_utf16)
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {
@@ -417,17 +412,14 @@ impl EntityInputHandler for TextInput {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let range = range_utf16
-            .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .or(self.marked_range.clone())
-            .unwrap_or(self.selected_range.clone());
-
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
-        self.selected_range = range.start + new_text.len()..range.start + new_text.len();
-        self.marked_range.take();
+        apply_replace(
+            &mut self.content,
+            &mut self.selected_range,
+            &mut self.selection_reversed,
+            &mut self.marked_range,
+            range_utf16.as_ref(),
+            new_text,
+        );
         cx.notify();
     }
 
@@ -439,26 +431,15 @@ impl EntityInputHandler for TextInput {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let range = range_utf16
-            .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .or(self.marked_range.clone())
-            .unwrap_or(self.selected_range.clone());
-
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
-        if !new_text.is_empty() {
-            self.marked_range = Some(range.start..range.start + new_text.len());
-        } else {
-            self.marked_range = None;
-        }
-        self.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
-            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
-
+        apply_mark(
+            &mut self.content,
+            &mut self.selected_range,
+            &mut self.selection_reversed,
+            &mut self.marked_range,
+            range_utf16.as_ref(),
+            new_text,
+            new_selected_range_utf16.as_ref(),
+        );
         cx.notify();
     }
 
@@ -561,8 +542,9 @@ impl Element for TextElement {
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
         let content = input.content.clone();
-        let selected_range = input.shown_offset(input.selected_range.start)
-            ..input.shown_offset(input.selected_range.end);
+        let sel_start = input.shown_offset(input.selected_range.start);
+        let sel_end = input.shown_offset(input.selected_range.end).max(sel_start);
+        let selected_range = sel_start..sel_end;
         let cursor = input.shown_offset(input.cursor_offset());
         // The window's current colours win over those the field was built with, so open
         // fields follow an appearance change.
@@ -581,7 +563,12 @@ impl Element for TextElement {
         };
         // IME composition is not drawn underlined in a masked field: its range is in content
         // bytes, not dots.
-        let marked_range = input.marked_range.clone().filter(|_| !input.masked);
+        let marked_range = input
+            .marked_range
+            .clone()
+            .filter(|_| !input.masked)
+            .map(|r| clamp_range(&display_text, &r))
+            .filter(|r| !r.is_empty());
 
         let run = TextRun {
             len: display_text.len(),
@@ -754,23 +741,10 @@ impl Focusable for TextInput {
     }
 }
 
+#[path = "text_input_ime.rs"]
+mod ime;
+use ime::{apply_mark, apply_replace, clamp_boundary, clamp_range, utf16_range_to_utf8};
+
 #[cfg(test)]
-#[allow(clippy::expect_used)]
-mod tests {
-    use super::*;
-    use gpui::{KeyContext, Keystroke};
-
-    fn resolves_to<A: gpui::Action>(keys: &str) -> bool {
-        let keymap = gpui::Keymap::new(bindings());
-        let stroke = Keystroke::parse(keys).expect("valid keystroke");
-        let ctx = KeyContext::parse(CONTEXT).expect("valid context");
-        let (found, _) = keymap.bindings_for_input(&[stroke], &[ctx]);
-        found.iter().any(|b| b.action().as_any().is::<A>())
-    }
-
-    #[test]
-    fn shift_backspace_edits_like_the_plain_key() {
-        assert!(resolves_to::<Backspace>("backspace"));
-        assert!(resolves_to::<Backspace>("shift-backspace"));
-    }
-}
+#[path = "text_input_tests.rs"]
+mod tests;

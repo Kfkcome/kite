@@ -105,7 +105,7 @@ impl NSRange {
     fn to_range(self) -> Option<Range<usize>> {
         if self.is_valid() {
             let start = self.location as usize;
-            let end = start + self.length as usize;
+            let end = start.saturating_add(self.length as usize);
             Some(start..end)
         } else {
             None

@@ -9,3 +9,6 @@ On macOS 27 and later, a titlebar press records the mouse and the window origin.
 `mouseDragged:` applies the delta with `setFrameOrigin:`. The opaque-rect override is
 unchanged, so AppKit still does not drag the titlebar itself or delay titlebar clicks.
 Earlier systems keep `performWindowDragWithEvent:`.
+
+`NSRange::to_range` uses `saturating_add` so malformed AppKit IME ranges never overflow, and
+`attributed_substring_for_proposed_range` guards against a null `actual_range` pointer.
