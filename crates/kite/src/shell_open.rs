@@ -301,44 +301,68 @@ impl Shell {
         let Some(tab) = self.tabs.get(self.active) else {
             return;
         };
-        if tab.panes.len() > 1 {
-            self.close_pane(window, cx);
-        } else {
-            self.close_tab_at(self.active, window, cx);
-        }
+        let (tab_id, focused) = (tab.id, tab.focused);
+        self.close_pane_in_tab(tab_id, focused, window, cx);
     }
 
-    /// Closes the focused pane (its session ends); the pane before it, or the one after for
-    /// the first, takes the keyboard.
-    fn close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tab) = self.tabs.get_mut(self.active) else {
+    /// Closes `pane_id` inside `tab_id` (ending its session); if it was the tab's only pane,
+    /// closes the tab instead. Keeps focus on the active pane when another pane is closed.
+    pub(crate) fn close_pane_in_tab(
+        &mut self,
+        tab_id: broadcast_ui::TabId,
+        pane_id: PaneId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab_ix) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return;
         };
-        let order = tab.tree.leaves();
-        let Some(at) = order.iter().position(|id| *id == tab.focused) else {
-            return;
+        let (dying, is_only, next) = {
+            let tab = &self.tabs[tab_ix];
+            let Some(dying) = tab
+                .panes
+                .iter()
+                .find(|pane| pane.id == pane_id)
+                .map(|pane| pane.session.clone())
+            else {
+                return;
+            };
+            if tab.panes.len() <= 1 {
+                (dying, true, None)
+            } else {
+                let order = tab.tree.leaves();
+                let Some(next) = next_focus_after_close(&order, tab.focused, pane_id) else {
+                    return;
+                };
+                if tab.tree.clone().remove(pane_id).is_none() {
+                    return;
+                }
+                (dying, false, Some(next))
+            }
         };
-        let next = if at > 0 { order[at - 1] } else { order[1] };
-        let focused = tab.focused;
-        let tree = std::mem::replace(&mut tab.tree, Node::Leaf(focused));
-        let Some(rest) = tree.remove(focused) else {
+        if is_only {
+            self.close_tab_at(tab_ix, window, cx);
             return;
-        };
-        let dying = tab
-            .panes
-            .iter()
-            .find(|pane| pane.id == focused)
-            .map(|pane| pane.session.clone());
-        tab.tree = rest;
-        if let Some(session) = dying {
-            self.migrate_forwards(std::slice::from_ref(&session), cx);
         }
-        let Some(tab) = self.tabs.get_mut(self.active) else {
+        let Some(next_focus) = next else {
             return;
         };
-        tab.panes.retain(|pane| pane.id != focused);
-        tab.focused = next;
-        self.focus_front_pane(window, cx);
+        self.migrate_forwards(std::slice::from_ref(&dying), cx);
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
+            return;
+        };
+        let tree = std::mem::replace(&mut tab.tree, Node::Leaf(pane_id));
+        let Some(rest) = tree.remove(pane_id) else {
+            return;
+        };
+        tab.tree = rest;
+        tab.panes.retain(|pane| pane.id != pane_id);
+        tab.focused = next_focus;
+        if self.tabs.get(self.active).is_some_and(|t| t.id == tab_id) {
+            self.focus_front_pane(window, cx);
+        } else {
+            self.apply_broadcast(cx);
+        }
         self.close_orphan_panels(window, cx);
         self.persist_tabs();
     }
@@ -411,9 +435,6 @@ impl Shell {
                     // A split stacks a header over the terminal. No frame: a box around
                     // every pane stacks with the seam and reads as a thick border.
                     .when(split, |el| el.flex().flex_col())
-                    // Before the terminal sees the click, so selecting text in a pane also
-                    // gives it the keyboard. The title bar is inside this hitbox.
-                    .capture_any_mouse_down(cx.listener(move |s, _, w, cx| s.focus_pane(id, w, cx)))
                     .when(split, |el| {
                         el.child(self.pane_title_bar(tab_id, id, &alias, &label, focused, cx))
                     })
@@ -422,6 +443,11 @@ impl Shell {
                             .flex_1()
                             .min_h(px(0.))
                             .min_w(px(0.))
+                            // Before the terminal sees the click, so selecting text in a pane also
+                            // gives it the keyboard without catching clicks on the close button.
+                            .capture_any_mouse_down(
+                                cx.listener(move |s, _, w, cx| s.focus_pane(id, w, cx)),
+                            )
                             .child(view)
                             .into_any_element()
                     } else {
@@ -453,5 +479,50 @@ impl Shell {
                 second,
             } => self.render_split(tab, *axis, *ratio, first, second, cx),
         }
+    }
+}
+
+/// Which pane holds focus after `closing` is removed from a multi-pane tab.
+/// Keeps `focused` when closing a different pane; otherwise moves to the previous leaf
+/// (or the second leaf when closing the first). `None` if `closing` is missing or the only leaf.
+fn next_focus_after_close(leaves: &[PaneId], focused: PaneId, closing: PaneId) -> Option<PaneId> {
+    if leaves.len() < 2 {
+        return None;
+    }
+    let at = leaves.iter().position(|&id| id == closing)?;
+    if focused != closing && leaves.contains(&focused) {
+        Some(focused)
+    } else if at > 0 {
+        Some(leaves[at - 1])
+    } else {
+        Some(leaves[1])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_focus_after_close;
+
+    #[test]
+    fn closing_an_unfocused_pane_keeps_the_focused_one() {
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 2, 1), Some(2));
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 1, 2), Some(1));
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 2, 3), Some(2));
+    }
+
+    #[test]
+    fn closing_the_focused_pane_moves_to_neighbour_leaf() {
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 1, 1), Some(2));
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 2, 2), Some(1));
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 3, 3), Some(2));
+    }
+
+    #[test]
+    fn closing_single_or_missing_pane_returns_none_and_stale_focus_falls_back() {
+        assert_eq!(next_focus_after_close(&[1], 1, 1), None);
+        assert_eq!(next_focus_after_close(&[], 1, 1), None);
+        assert_eq!(next_focus_after_close(&[1, 2], 1, 9), None);
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 99, 2), Some(1));
+        assert_eq!(next_focus_after_close(&[1, 2, 3], 99, 1), Some(2));
     }
 }

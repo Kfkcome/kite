@@ -3,6 +3,7 @@
 
 pub(super) const PAIRS: &[(&str, &str)] = &[
     ("{} panes", "{} 窗格"),
+    ("Close pane", "关闭窗格"),
     ("Could not open “{}”", "无法打开「{}」"),
     ("Group name", "分组名称"),
     ("Layout", "布局"),
