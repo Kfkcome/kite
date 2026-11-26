@@ -35,7 +35,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 strip-ansi-escapes = "0.2.1"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", default-features = false, features = ["poll"] }
+nix = { version = "0.32", default-features = false, features = ["poll"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
