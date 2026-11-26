@@ -128,3 +128,21 @@ stored in `<hash>.meta.json` next to the picture. A hit checks the PNG signature
 of both PNGs and parses the sidecar; no pixel is decoded. A miss, a truncated file or an old
 sidecar takes the previous path, which also writes the sidecar. The after-figure is measured by the
 lead, not recorded here.
+
+## 2026-11-26 — Tier 1 (app) & Tier 2 (vendored GPUI) memory pass
+
+Changes:
+- **App (Tier 1):**
+  - `crates/kite/src/wallpaper_decode.rs`: JPEG decode uses macOS ImageIO (`CGImageSourceCreateThumbnailAtIndex` + `kCGImageSourceThumbnailMaxPixelSize`) so wallpapers and thumbnails never allocate a full-resolution RGBA intermediate; `wallpaper_fx::render` returns `rgba` directly for `Effect::None`.
+  - `crates/kite/src/shell_wallpaper.rs` & `shell_wallpaper_gallery.rs`: dedicated `RetainAllImageCache` per surface (hero, 320 px blurred backdrop, gallery thumbnails). Hero GPU/CPU image is evicted when a tab or Settings opens or crossfade ends; gallery thumbnails decode sequentially and evict on leaving Settings → Appearance.
+  - `crates/kite/src/shell_look.rs`, `shell_status_bar.rs`, `shell.rs`, `settings.rs`, `shell_settings.rs`: `window.observe_window_visibility` pauses the 1 s `StatusBar` clock when hidden/occluded; added macOS `windowBlur` ("Translucent window") opt-out toggle and open directly `Opaque` when disabled or when a wallpaper is active.
+  - Default `gpui_platform` features drop `runtime_shaders` (moved behind optional `kite/runtime-shaders`).
+- **Vendored GPUI & release profile (Tier 2):**
+  - `vendor/gpui-pre-apple`: `build.rs` compiles `shaders.metallib` ahead of time whenever Xcode's `xcrun metal`/`metallib` is present (falling back cleanly on Command Line Tools-only hosts); `CAMetalLayer.set_maximum_drawable_count(2)`; lazy + `MTLPurgeableState::Volatile` `PathIntermediateTextures`; `InstanceBufferPool` starts at 512 KiB (cap 2 pooled, marked `Volatile`); `DEFAULT_ATLAS_SIZE` 1024 → 512; `autoreleasepool` around shader/pipeline setup.
+  - `vendor/gpui-pre`: CJK / Hangul / Kana / fullwidth glyphs snap to integer horizontal device pixels (`subpixel_variant.x = 0`).
+  - Workspace `[profile.release]`: `opt-level = 2`, `lto = "fat"`, `codegen-units = 1`, `strip = true`, `panic = "abort"`, dependencies at `opt-level = "s"` (keeping `kite-term`, `alacritty_terminal`, `vte` at `opt-level = 2`).
+
+Measurement (Apple Silicon macOS, Command Line Tools-only host so runtime Metal shader fallback remained active):
+- `/Applications/Kite.app/Contents/MacOS/Kite` stripped binary: **26 MB → 16 MB** (-38%).
+- Freshly launched `/Applications/Kite.app` (user profile, t = 6 s): **86 MB `phys_footprint`** (**88.8 MB RSS**), breakdown: `IOSurface` 36 MB (2 × 18 MB), `IOAccelerator` 17 MB, `Malloc Small` 13 MB, `IOAccelerator (graphics)` 2.6 MB.
+- Release/CI hosts with full Xcode automatically emit precompiled `shaders.metallib`, eliminating the runtime `MTLCompiler` heap as well.

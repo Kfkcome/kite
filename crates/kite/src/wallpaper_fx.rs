@@ -51,7 +51,11 @@ impl Source<'_> {
 /// Apply `effect` to an RGBA image; `light` is the appearance it's drawn in
 /// (effects print on white paper in light mode, black in dark).
 pub fn render(rgba: Vec<u8>, width: u32, height: u32, effect: Effect, light: bool) -> Vec<u8> {
-    if width == 0 || height == 0 || rgba.len() < (width * height * 4) as usize {
+    if width == 0
+        || height == 0
+        || rgba.len() < (width * height * 4) as usize
+        || effect == Effect::None
+    {
         return rgba;
     }
     let src = Source {
@@ -60,7 +64,7 @@ pub fn render(rgba: Vec<u8>, width: u32, height: u32, effect: Effect, light: boo
         rgba: &rgba,
     };
     match effect {
-        Effect::None => rgba.clone(),
+        Effect::None => rgba,
         Effect::Scanlines => scanlines(&src, light),
         Effect::Ascii => ascii(&src, light),
         Effect::Halftone => halftone(&src, light),

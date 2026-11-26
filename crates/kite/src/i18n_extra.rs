@@ -27,6 +27,11 @@ pub(super) const PAIRS: &[(&str, &str)] = &[
     ("Save layout…", "保存布局…"),
     ("Saved layout “{}”", "已保存布局「{}」"),
     ("Skipped missing hosts: {}", "已跳过缺失的主机：{}"),
+    ("Translucent window", "半透明窗口"),
+    (
+        "Blur the desktop behind the window when no wallpaper is set; off keeps it opaque and uses less memory",
+        "未设置壁纸时模糊窗口后的桌面；关闭后保持不透明并降低内存占用",
+    ),
     ("Update layout", "更新布局"),
     ("Updated layout “{}”", "已更新布局「{}」"),
     (

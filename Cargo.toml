@@ -51,18 +51,35 @@ disallowed_methods = "deny"
 # Scrollback rows keep only the cells they use. See vendor/alacritty_terminal/TERN-PATCH.md.
 # macOS 27 moves the window from mouseDragged: instead of performWindowDragWithEvent:.
 # See vendor/gpui-pre-macos/TERN-PATCH.md.
+# Metal renderer / atlas memory patches and CJK integer-x glyph snapping.
+# See vendor/gpui-pre-apple/TERN-PATCH.md and vendor/gpui-pre/TERN-PATCH.md.
 [patch.crates-io]
 alacritty_terminal = { path = "vendor/alacritty_terminal" }
+gpui-pre = { path = "vendor/gpui-pre" }
+gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 
 # Small, fast release binary. Measured, not assumed: see docs/perf.md.
 [profile.release]
-opt-level = 3
+opt-level = 2
 lto = "fat"
 codegen-units = 1
 strip = true
+panic = "abort"
 debug = false
 incremental = false
+
+[profile.release.package."*"]
+opt-level = "s"
+
+[profile.release.package.kite-term]
+opt-level = 2
+
+[profile.release.package.alacritty_terminal]
+opt-level = 2
+
+[profile.release.package.vte]
+opt-level = 2
 
 [profile.dev.package."*"]
 opt-level = 2   # deps optimised even in dev, so the terminal is usable while developing

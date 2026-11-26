@@ -2,6 +2,7 @@
 //! an ordinary wallpaper file, and the small cached thumbnails the tiles draw instead of the
 //! full image. Everything here is plain file work for a background thread.
 
+use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -99,15 +100,15 @@ pub fn thumbnail(
     config: &Path,
     id: &str,
     len: u64,
-    load: impl FnOnce() -> Result<Vec<u8>, String>,
+    load: impl FnOnce() -> Result<Cow<'static, [u8]>, String>,
 ) -> Result<PathBuf, String> {
     let path = thumb_dir(config).join(thumb_name(id, len));
     if path.is_file() {
         return Ok(path);
     }
     let bytes = load()?;
-    let full =
-        image::load_from_memory(&bytes).map_err(|e| format!("Cannot decode the wallpaper: {e}"))?;
+    let full = crate::wallpaper_decode::decode_max_edge(&bytes, THUMB_W.max(THUMB_H) * 2)?;
+    drop(bytes);
     let thumb = DynamicImage::ImageRgb8(
         full.resize_to_fill(THUMB_W, THUMB_H, FilterType::Triangle)
             .to_rgb8(),
@@ -126,7 +127,7 @@ pub fn builtin_thumbnail(config: &Path, b: &Builtin) -> Result<PathBuf, String> 
         config,
         &format!("builtin:{}", b.id),
         b.bytes.len() as u64,
-        || Ok(b.bytes.to_vec()),
+        || Ok(Cow::Borrowed(b.bytes)),
     )
 }
 
@@ -136,7 +137,9 @@ pub fn file_thumbnail(config: &Path, source: &Path) -> Result<PathBuf, String> {
         .map_err(|e| format!("Cannot read the image: {e}"))?
         .len();
     thumbnail(config, &source.to_string_lossy(), len, || {
-        std::fs::read(source).map_err(|e| format!("Cannot read the image: {e}"))
+        std::fs::read(source)
+            .map(Cow::Owned)
+            .map_err(|e| format!("Cannot read the image: {e}"))
     })
 }
 
@@ -219,7 +222,10 @@ mod tests {
     fn a_thumbnail_is_made_once_at_tile_size_and_a_new_length_makes_another() {
         let dir = temp("thumb");
         let src = png_bytes(64, 64); // square source: the thumbnail is cropped to 16:10
-        let first = thumbnail(&dir, "/w/a.png", src.len() as u64, || Ok(src.clone())).unwrap();
+        let first = thumbnail(&dir, "/w/a.png", src.len() as u64, || {
+            Ok(Cow::Owned(src.clone()))
+        })
+        .unwrap();
         let img = image::open(&first).unwrap();
         assert_eq!((img.width(), img.height()), (THUMB_W, THUMB_H));
         // Cached: the loader is not asked again.
@@ -231,9 +237,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(again, first);
-        let longer = thumbnail(&dir, "/w/a.png", src.len() as u64 + 1, || Ok(src.clone())).unwrap();
+        let longer = thumbnail(&dir, "/w/a.png", src.len() as u64 + 1, || {
+            Ok(Cow::Owned(src.clone()))
+        })
+        .unwrap();
         assert_ne!(longer, first);
-        assert!(thumbnail(&dir, "/w/bad", 3, || Ok(b"not an image".to_vec())).is_err());
+        assert!(thumbnail(&dir, "/w/bad", 3, || Ok(Cow::Borrowed(b"not an image"))).is_err());
     }
 
     #[test]

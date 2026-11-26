@@ -227,14 +227,8 @@ pub fn prepare(
         });
     }
     let bytes = std::fs::read(source).map_err(|e| format!("Cannot read the wallpaper: {e}"))?;
-    let decoded =
-        image::load_from_memory(&bytes).map_err(|e| format!("Cannot decode the wallpaper: {e}"))?;
+    let decoded = crate::wallpaper_decode::decode_max_edge(&bytes, MAX_EDGE)?;
     drop(bytes);
-    let decoded = if decoded.width() > MAX_EDGE || decoded.height() > MAX_EDGE {
-        decoded.thumbnail(MAX_EDGE, MAX_EDGE)
-    } else {
-        decoded
-    };
     let accent = wallpaper_fx::extract(decoded.thumbnail(64, 64).to_rgba8().pixels().map(|p| p.0));
     // The picture just rendered, kept so the frosted copy is made from memory, not by decoding
     // the PNG that was just written.

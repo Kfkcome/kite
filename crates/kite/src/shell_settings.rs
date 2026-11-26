@@ -182,6 +182,7 @@ impl Shell {
         let reduce = self.settings.reduce_motion;
         let show_status = self.settings.show_status_line;
         let sharp = self.settings.sharp_text;
+        let window_blur = self.settings.window_blur;
         let mut appearance_modes = div().flex().gap(px(6.));
         for (id, label, mode) in [
             ("appearance-system", tr("System"), AppearanceMode::System),
@@ -276,6 +277,25 @@ impl Shell {
                         }))
                         .child(w::toggle(&t, sharp, "sharp-text")),
                 ))
+                .when(crate::theme::BLURS_BEHIND, |el| {
+                    el.child(w::row(
+                        &t,
+                        false,
+                        tr("Translucent window"),
+                        Some(
+                            tr("Blur the desktop behind the window when no wallpaper is set; off keeps it opaque and uses less memory")
+                                .into(),
+                        ),
+                        div()
+                            .id("toggle-window-blur")
+                            .switch(tr("Translucent window"), window_blur)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.update_settings(|st| st.window_blur = !st.window_blur, cx)
+                            }))
+                            .child(w::toggle(&t, window_blur, "window-blur")),
+                    ))
+                })
                 .child(w::row(
                     &t,
                     false,

@@ -117,6 +117,11 @@ pub(crate) use snippets_ui::ToggleSnippets;
 
 pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
     let bounds = open::start_bounds(cx);
+    let settings = settings::dir()
+        .map(|d| Settings::load(&d))
+        .unwrap_or_default();
+    let blur_at_open =
+        crate::theme::BLURS_BEHIND && settings.window_blur && settings.wallpaper.is_none();
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(900.), px(600.))),
@@ -126,7 +131,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
             traffic_light_position: Some(point(px(14.), px(14.))),
         }),
         app_owns_titlebar_drag: true,
-        window_background: if crate::theme::BLURS_BEHIND {
+        window_background: if blur_at_open {
             WindowBackgroundAppearance::Blurred
         } else {
             WindowBackgroundAppearance::Opaque
@@ -151,9 +156,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
             let weak = cx.weak_entity();
             let mut shell = Shell {
                 focus: cx.focus_handle(),
-                settings: settings::dir()
-                    .map(|d| Settings::load(&d))
-                    .unwrap_or_default(),
+                settings,
                 theme,
                 hosts: Vec::new(),
                 connections,
@@ -229,6 +232,7 @@ pub fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Shell>> {
         .detach();
         shell.check_for_updates(cx);
         shell.start_auto_sync(window, cx);
+        shell.observe_visibility(window, cx);
     })?;
     // With no tab open nothing else holds focus, and gpui only dispatches key bindings along
     // the focused element's path, so the shell itself must be focused for ⌘K to work.
@@ -528,7 +532,7 @@ impl Render for Shell {
             window.focus(&self.focus, cx);
         }
         self.sync_density(window);
-        self.sync_wallpaper(cx);
+        self.sync_wallpaper(window, cx);
         self.sync_frame(window);
         let t = self.theme;
         let infos = self.tab_infos(cx);
@@ -581,8 +585,8 @@ impl Render for Shell {
         let layout_prompt = self.render_layout_prompt(window, cx);
         let group_prompt = self.render_group_prompt(window, cx);
         let panel_bg = self.panel_background();
-        let hero = self.empty_view_hero(window);
-        let layers = self.backdrop();
+        let hero = self.empty_view_hero(window, cx);
+        let layers = self.backdrop(window, cx);
         let status_line = self.render_status_line(show_workspace, self.veil(panel_bg), cx);
         let theme_picker = self.render_theme_picker(window, cx);
         let toast = self.render_toast(window, cx);

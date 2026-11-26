@@ -168,6 +168,30 @@ impl Shell {
         });
         Some(self.status_bar.clone())
     }
+
+    /// Tracks macOS occlusion / minimisation so idle timers pause when the window is hidden
+    /// and repaint once as soon as it becomes visible again.
+    pub(super) fn observe_visibility(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let initial = window.is_visible();
+        self.frame.visible = initial;
+        self.status_bar
+            .update(cx, |bar, cx| bar.set_window_visible(initial, cx));
+        let handle = cx.entity().downgrade();
+        self.frame._visibility = Some(window.observe_window_visibility(move |vis, _, cx| {
+            let _ = handle.update(cx, |shell, cx| {
+                let visible = vis.is_visible();
+                if shell.frame.visible != visible {
+                    shell.frame.visible = visible;
+                    shell
+                        .status_bar
+                        .update(cx, |bar, cx| bar.set_window_visible(visible, cx));
+                    if visible {
+                        cx.notify();
+                    }
+                }
+            });
+        }));
+    }
 }
 
 /// Text over the wallpaper hero sits on a plate of the panel colour, so it never depends on
@@ -196,6 +220,9 @@ pub(super) struct FrameState {
     pub(super) scale: f32,
     /// The window appearance last set, so it is only touched when it changes.
     blurred: Option<bool>,
+    /// Whether the window is currently visible (not minimised, hidden, or fully occluded).
+    pub(super) visible: bool,
+    _visibility: Option<gpui::Subscription>,
 }
 
 impl Default for FrameState {
@@ -203,17 +230,20 @@ impl Default for FrameState {
         Self {
             scale: 1.0,
             blurred: None,
+            visible: true,
+            _visibility: None,
         }
     }
 }
 
 impl Shell {
     /// Records the scale factor and switches the window between its blurred appearance (no
-    /// wallpaper: the desktop shows through the frost) and an opaque one (a wallpaper is set:
-    /// nothing behind the window may show).
+    /// wallpaper: the desktop shows through the frost) and an opaque one (a wallpaper is set,
+    /// or window translucency is turned off).
     pub(super) fn sync_frame(&mut self, window: &mut Window) {
         self.frame.scale = window.scale_factor();
-        let blurred = crate::theme::BLURS_BEHIND && !self.has_wallpaper();
+        let blurred =
+            crate::theme::BLURS_BEHIND && self.settings.window_blur && !self.has_wallpaper();
         if self.frame.blurred != Some(blurred) {
             self.frame.blurred = Some(blurred);
             window.set_background_appearance(if blurred {
@@ -224,9 +254,9 @@ impl Shell {
         }
     }
 
-    /// The window root's colour: always opaque under a wallpaper, frost otherwise.
+    /// The window root's colour: opaque under a wallpaper or when blur is off, frost otherwise.
     pub(super) fn window_base(&self) -> Hsla {
-        if self.has_wallpaper() {
+        if self.has_wallpaper() || !self.settings.window_blur {
             self.theme.shell
         } else {
             self.theme.surface()
@@ -234,20 +264,16 @@ impl Shell {
     }
 
     /// The blurred picture across the window, drawn once; empty unless the picture fills it.
-    pub(super) fn backdrop(&self) -> Vec<AnyElement> {
-        use gpui::StyledImage as _;
+    pub(super) fn backdrop(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         let Some(blurred) = self.blurred_backdrop() else {
+            self.clear_backdrop_cache(window, cx);
             return Vec::new();
         };
-        vec![
-            gpui::img(blurred)
-                .absolute()
-                .inset_0()
-                .size_full()
-                .object_fit(gpui::ObjectFit::Cover)
-                .opacity(self.settings.wallpaper_hero_opacity)
-                .into_any_element(),
-        ]
+        vec![self.backdrop_picture(blurred, self.settings.wallpaper_hero_opacity, window, cx)]
     }
 
     /// The tint a tile of colour `colour` lays over what is behind it: the panel alpha over a

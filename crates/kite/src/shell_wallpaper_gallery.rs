@@ -7,11 +7,13 @@ use std::path::{Path, PathBuf};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext as _, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage as _, div, hsla, px,
+    AppContext as _, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    RetainAllImageCache, SharedString, StatefulInteractiveElement, Styled, StyledImage as _, Task,
+    Window, div, hsla, px,
 };
 
 use super::Shell;
+use super::settings_ui::Section;
 use crate::hover::Accessible as _;
 use crate::hover::HoverFade as _;
 use crate::i18n::tr;
@@ -35,6 +37,10 @@ enum Thumb {
 #[derive(Default)]
 pub(super) struct Gallery {
     thumbs: HashMap<String, Thumb>,
+    /// Dedicated cache for gallery thumbnail textures, cleared when leaving Appearance.
+    thumb_cache: Option<Entity<RetainAllImageCache>>,
+    /// Single sequential background worker so opening Appearance never decodes N images at once.
+    worker: Option<Task<()>>,
 }
 
 fn builtin_key(b: &Builtin) -> String {
@@ -58,10 +64,27 @@ impl Shell {
             .filter(|p| Path::new(p).is_file())
     }
 
-    /// Starts a thumbnail for every tile that has none yet. Called every frame while Settings is
-    /// open; a map lookup per tile when nothing is missing.
-    pub(super) fn sync_thumbs(&mut self, cx: &mut Context<Self>) {
-        if self.settings_page.is_none() {
+    /// Starts a thumbnail for every tile that has none yet, one at a time, while Settings →
+    /// Appearance is open; evicts thumbnail GPU textures and stops queued work once left.
+    pub(super) fn sync_thumbs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings_page != Some(Section::Appearance) {
+            if self.wp.gallery.worker.take().is_some() {
+                self.wp
+                    .gallery
+                    .thumbs
+                    .retain(|_, v| !matches!(v, Thumb::Pending));
+            }
+            if let Some(cache) = self.wp.gallery.thumb_cache.as_ref() {
+                cache.update(cx, |c, cx| c.clear(window, cx));
+            }
+            return;
+        }
+        let _ = self
+            .wp
+            .gallery
+            .thumb_cache
+            .get_or_insert_with(|| RetainAllImageCache::new(cx));
+        if self.wp.gallery.worker.is_some() {
             return;
         }
         let Some(config) = crate::settings::dir() else {
@@ -71,27 +94,36 @@ impl Shell {
             BUILTINS.iter().map(|b| (builtin_key(b), Some(b))).collect();
         missing.extend(self.recent_pictures().map(|p| (p.clone(), None)));
         missing.retain(|(key, _)| !self.wp.gallery.thumbs.contains_key(key));
-        for (key, builtin) in missing {
+        if missing.is_empty() {
+            return;
+        }
+        for (key, _) in &missing {
             self.wp.gallery.thumbs.insert(key.clone(), Thumb::Pending);
-            let config = config.clone();
-            let job_key = key.clone();
-            let task = cx.background_spawn(async move {
-                match builtin {
-                    Some(b) => data::builtin_thumbnail(&config, b),
-                    None => data::file_thumbnail(&config, Path::new(&job_key)),
-                }
-            });
-            cx.spawn(async move |this, cx| {
-                let made = task.await;
-                this.update(cx, |s, cx| {
+        }
+        let worker = cx.spawn(async move |this, cx| {
+            for (key, builtin) in missing {
+                let cfg = config.clone();
+                let job_key = key.clone();
+                let made = cx
+                    .background_spawn(async move {
+                        match builtin {
+                            Some(b) => data::builtin_thumbnail(&cfg, b),
+                            None => data::file_thumbnail(&cfg, Path::new(&job_key)),
+                        }
+                    })
+                    .await;
+                let ok = this.update(cx, |s, cx| {
                     let thumb = made.map_or(Thumb::Failed, Thumb::Ready);
                     s.wp.gallery.thumbs.insert(key, thumb);
                     cx.notify();
-                })
-                .ok();
-            })
-            .detach();
-        }
+                });
+                if ok.is_err() {
+                    return;
+                }
+            }
+            let _ = this.update(cx, |s, _| s.wp.gallery.worker = None);
+        });
+        self.wp.gallery.worker = Some(worker);
     }
 
     /// Writes the built-in into tern's folder (once) off the UI thread, then shows it. It is
@@ -193,13 +225,16 @@ impl Shell {
                     _ => None,
                 },
                 |el, path| {
-                    el.child(
-                        gpui::img(path)
-                            .absolute()
-                            .size_full()
-                            .rounded(px(inner))
-                            .object_fit(gpui::ObjectFit::Cover),
-                    )
+                    let img = gpui::img(path)
+                        .absolute()
+                        .size_full()
+                        .rounded(px(inner))
+                        .object_fit(gpui::ObjectFit::Cover);
+                    let img = match self.wp.gallery.thumb_cache.as_ref() {
+                        Some(cache) => img.image_cache(cache),
+                        None => img,
+                    };
+                    el.child(img)
                 },
             )
             .child(

@@ -40,6 +40,7 @@ mod theme;
 mod theme_tint;
 mod vault_pin;
 mod wallpaper;
+mod wallpaper_decode;
 mod wallpaper_fx;
 mod wallpaper_gallery;
 mod wallpaper_panel;

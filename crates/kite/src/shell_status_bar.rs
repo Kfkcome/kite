@@ -28,6 +28,7 @@ pub(super) struct StatusBar {
     sftp_open: bool,
     forwards_count: usize,
     visible: bool,
+    window_visible: bool,
     last_tick: Option<TickKey>,
     _clock: Task<()>,
 }
@@ -51,8 +52,19 @@ impl StatusBar {
             sftp_open: false,
             forwards_count: 0,
             visible: false,
+            window_visible: true,
             last_tick: None,
             _clock: clock,
+        }
+    }
+
+    pub(super) fn set_window_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        if self.window_visible == visible {
+            return;
+        }
+        self.window_visible = visible;
+        if visible {
+            self.tick(cx);
         }
     }
 
@@ -74,8 +86,10 @@ impl StatusBar {
     }
 
     fn tick(&mut self, cx: &mut Context<Self>) {
-        if !self.visible {
-            self.last_tick = None;
+        if !self.visible || !self.window_visible {
+            if !self.visible {
+                self.last_tick = None;
+            }
             return;
         }
         let Some(session) = self.session.as_ref() else {

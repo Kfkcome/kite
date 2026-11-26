@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Resource, RetainAllImageCache, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use super::Shell;
@@ -72,6 +72,13 @@ pub(super) struct State {
     failed: Option<Want>,
     fade: Option<Fade>,
     fill_cache: Option<FillCache>,
+    /// Dedicated cache for the full-size empty-view hero so its GPU texture is evicted as soon as
+    /// a tab or Settings opens, or after a crossfade finishes.
+    hero_cache: Option<Entity<RetainAllImageCache>>,
+    hero_cached: Vec<PathBuf>,
+    /// Dedicated cache for the 320 px blurred window backdrop.
+    backdrop_cache: Option<Entity<RetainAllImageCache>>,
+    backdrop_cached: Option<PathBuf>,
     pub(super) error: Option<String>,
     pub(super) gallery: super::gallery_ui::Gallery,
 }
@@ -95,12 +102,14 @@ impl Shell {
 
     /// Starts rendering whatever the settings now ask for. Called every frame; cheap when
     /// nothing changed.
-    pub(super) fn sync_wallpaper(&mut self, cx: &mut Context<Self>) {
-        self.sync_thumbs(cx);
+    pub(super) fn sync_wallpaper(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_thumbs(window, cx);
         let Some(want) = self.wanted() else {
             self.wp.failed = None;
             self.wp.error = None;
             self.wp.loading = None;
+            self.clear_hero_cache(window, cx);
+            self.clear_backdrop_cache(window, cx);
             if self.wp.shown.take().is_some() {
                 self.wp.fade = None;
                 // The accent is restored outside this frame: it restyles the open terminals.
@@ -194,12 +203,58 @@ impl Shell {
     }
 
     /// The empty view's picture, filling the main tile. Only the empty view has it: with a tab
-    /// or the Settings page open nothing sharp sits behind the content.
-    pub(super) fn empty_view_hero(&mut self, window: &mut Window) -> Option<AnyElement> {
+    /// or the Settings page open nothing sharp sits behind the content, and its GPU texture is
+    /// dropped at once.
+    pub(super) fn empty_view_hero(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if self.tabs.get(self.active).is_some() || self.settings_page.is_some() {
+            self.clear_hero_cache(window, cx);
             return None;
         }
-        self.wallpaper_hero(window)
+        self.wallpaper_hero(window, cx)
+    }
+
+    pub(super) fn clear_hero_cache(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(cache) = self.wp.hero_cache.as_ref()
+            && !self.wp.hero_cached.is_empty()
+        {
+            cache.update(cx, |c, cx| c.clear(window, cx));
+            self.wp.hero_cached.clear();
+        }
+    }
+
+    pub(super) fn clear_backdrop_cache(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(cache) = self.wp.backdrop_cache.as_ref()
+            && self.wp.backdrop_cached.is_some()
+        {
+            cache.update(cx, |c, cx| c.clear(window, cx));
+            self.wp.backdrop_cached = None;
+        }
+    }
+
+    /// Renders the 320 px frosted backdrop through its own cache, dropping any previous image.
+    pub(super) fn backdrop_picture(
+        &mut self,
+        path: PathBuf,
+        opacity: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let cache = self
+            .wp
+            .backdrop_cache
+            .get_or_insert_with(|| RetainAllImageCache::new(cx))
+            .clone();
+        if self.wp.backdrop_cached.as_ref() != Some(&path)
+            && let Some(old) = self.wp.backdrop_cached.replace(path.clone())
+        {
+            let res = Resource::from(old);
+            cache.update(cx, |c, cx| c.remove(&res, window, cx));
+        }
+        picture(path, opacity, &cache)
     }
 
     /// The blurred copy of the picture, when it should fill the window.
@@ -281,8 +336,12 @@ impl Shell {
     /// The hero: the sharp picture filling the empty view's tile, cover-fit, at full strength.
     /// It fills the whole tile rather than a band, so no edge shows where it would end. `None`
     /// without a wallpaper; the crossfade layers sit inside it.
-    pub(super) fn wallpaper_hero(&mut self, window: &mut Window) -> Option<AnyElement> {
-        let layers = self.wallpaper_layers(window);
+    pub(super) fn wallpaper_hero(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let layers = self.wallpaper_layers(window, cx);
         if layers.is_empty() {
             return None;
         }
@@ -298,8 +357,13 @@ impl Shell {
 
     /// The picture layers, back to front: the one being replaced at full strength, with the new
     /// one fading in over it.
-    pub(super) fn wallpaper_layers(&mut self, window: &mut Window) -> Vec<AnyElement> {
+    pub(super) fn wallpaper_layers(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         let Some(shown) = self.wp.shown.as_ref() else {
+            self.clear_hero_cache(window, cx);
             return Vec::new();
         };
         let opacity = self.settings.wallpaper_hero_opacity;
@@ -308,18 +372,45 @@ impl Shell {
             let t = fade.since.elapsed().as_secs_f32() / CROSSFADE.as_secs_f32();
             (t < 1.0).then(|| (CROSSFADE_CURVE.eval(t), fade.from.clone()))
         });
+        let cache = self
+            .wp
+            .hero_cache
+            .get_or_insert_with(|| RetainAllImageCache::new(cx))
+            .clone();
+        let mut active = Vec::with_capacity(2);
         let mut layers = Vec::new();
         match progress {
             Some((eased, from)) => {
-                layers.extend(from.map(|p| picture(p, opacity)));
-                layers.push(picture(current, opacity * eased));
+                if let Some(p) = from {
+                    active.push(p.clone());
+                    layers.push(picture(p, opacity, &cache));
+                }
+                active.push(current.clone());
+                layers.push(picture(current, opacity * eased, &cache));
                 window.request_animation_frame();
             }
             None => {
                 self.wp.fade = None;
-                layers.push(picture(current, opacity));
+                active.push(current.clone());
+                layers.push(picture(current, opacity, &cache));
             }
         }
+        // Evict any previously cached hero image that is no longer displayed (e.g. after fade).
+        let stale: Vec<PathBuf> = self
+            .wp
+            .hero_cached
+            .iter()
+            .filter(|p| !active.contains(p))
+            .cloned()
+            .collect();
+        if !stale.is_empty() {
+            cache.update(cx, |c, cx| {
+                for path in stale {
+                    c.remove(&Resource::from(path), window, cx);
+                }
+            });
+        }
+        self.wp.hero_cached = active;
         layers
     }
 
@@ -491,9 +582,10 @@ fn effects() -> [(&'static str, &'static str, Effect); 5] {
     ]
 }
 
-fn picture(path: PathBuf, opacity: f32) -> AnyElement {
+fn picture(path: PathBuf, opacity: f32, cache: &Entity<RetainAllImageCache>) -> AnyElement {
     use gpui::StyledImage as _;
     gpui::img(path)
+        .image_cache(cache)
         .absolute()
         .top_0()
         .left_0()

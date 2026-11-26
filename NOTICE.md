@@ -15,6 +15,7 @@ tern is GPL-3.0-or-later. It copies and adapts code from the projects below; eac
 | mbadolato/iTerm2-Color-Schemes (Ghostty format) | MIT | terminal colour schemes, `crates/tern/assets/themes.txt` |
 | Solar Icons by 480 Design (via zeron) | CC BY 4.0 | UI icons, `crates/tern/assets/icons` |
 | daangn/seed-design | MIT | snackbar sizes, colours, motion and behaviour |
+| DEEIX-AI/Winc (`crates/winc-preview/src/image/imageio.rs`) | Apache-2.0 | macOS ImageIO bounded JPEG thumbnail decoding in `crates/kite/src/wallpaper_decode.rs` |
 | vercel/geist-font (via zeron) | SIL OFL 1.1 | Geist and Geist Mono fonts, `crates/tern/assets/fonts` |
 
 ## Built-in wallpapers

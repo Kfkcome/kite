@@ -83,6 +83,9 @@ pub struct Settings {
     /// On a standard-density (1x) display: whole-pixel sizes, 1 px icon strokes, an opaque
     /// window fill and stronger muted text, since the text there is grayscale-only and thin.
     pub sharp_text: bool,
+    /// Blur the desktop behind the window on macOS when no wallpaper is active; off keeps the
+    /// window opaque (lower memory and direct-to-display presentation).
+    pub window_blur: bool,
     pub sidebar_width: f32,
     pub sidebar_collapsed: bool,
     /// Height of the docked Layouts section. Missing from older files.
@@ -165,6 +168,7 @@ impl Default for Settings {
             language: Language::System,
             show_status_line: true,
             sharp_text: true,
+            window_blur: true,
             sidebar_width: SIDEBAR_DEFAULT,
             sidebar_collapsed: false,
             sidebar_layouts_height: LAYOUTS_DEFAULT,
@@ -451,6 +455,7 @@ mod tests {
             language: Language::Chinese,
             show_status_line: false,
             sharp_text: false,
+            window_blur: false,
             sidebar_width: 312.0,
             sidebar_collapsed: true,
             sidebar_layouts_height: 200.0,
