@@ -14,7 +14,7 @@ use gpui::{
 use kite_ssh::{ConnectSpec, HostEntry};
 
 use super::*;
-use crate::i18n::{fill, tr};
+use crate::i18n::tr;
 
 impl Shell {
     /// Focuses the host's existing pane when one is open — the first, in tab order, then
@@ -126,36 +126,26 @@ impl Shell {
         let bell = self.on_bell(&session, window, cx);
         // A tab that is not in front can drop without anyone seeing its terminal; say so, with
         // a way to get to it.
-        let mut last = Status::Connecting;
-        let repaint =
-            cx.observe(&session, move |shell, session, cx| {
-                let status = session.read(cx).status.clone();
-                if status == Status::Closed && last != Status::Closed {
-                    let hit = shell.tabs.iter().enumerate().find_map(|(ix, tab)| {
-                        tab.panes.iter().find_map(|pane| {
-                            (pane.session == session).then(|| (ix, pane.id, pane.alias.clone()))
-                        })
-                    });
-                    if let Some((_, pane_id, alias)) = hit
-                        .filter(|(ix, _, _)| *ix != shell.active || shell.settings_page.is_some())
-                    {
-                        shell.toast(
-                            Toast::new(ToastKind::Critical, fill("{} disconnected", &[&alias]))
-                                .action(tr("Show"), move |shell, window, cx| {
-                                    // The pane may have moved to another slot since this toast.
-                                    if let Some(ix) = shell.tabs.iter().position(|tab| {
-                                        tab.panes.iter().any(|pane| pane.id == pane_id)
-                                    }) {
-                                        shell.show_pane(ix, pane_id, window, cx);
-                                    }
-                                }),
-                            cx,
-                        );
-                    }
+        let mut last = session.read(cx).status.clone();
+        let repaint = cx.observe(&session, move |shell, session, cx| {
+            let status = session.read(cx).status.clone();
+            if status == Status::Closed && last == Status::Connected {
+                let hit = shell.tabs.iter().enumerate().find_map(|(ix, tab)| {
+                    tab.panes.iter().find_map(|pane| {
+                        (pane.session == session).then(|| (ix, pane.alias.clone()))
+                    })
+                });
+                if let Some((_, alias)) =
+                    hit.filter(|(ix, _)| *ix != shell.active || shell.settings_page.is_some())
+                {
+                    shell.disconnect_toast(&alias, cx);
                 }
-                last = status;
-                cx.notify();
-            });
+            } else if status == Status::Connected && last != Status::Connected {
+                shell.reconcile_disconnect_toasts(cx);
+            }
+            last = status;
+            cx.notify();
+        });
         let notes = cx.subscribe(
             &session,
             |shell, session, note: &crate::session::SessionNote, cx| {
@@ -191,6 +181,7 @@ impl Shell {
         // After `tab` is released: this needs `&mut self` and only queues a background read.
         self.refresh_local_cwds(cx);
         self.apply_broadcast(cx);
+        self.reconcile_disconnect_toasts(cx);
         cx.notify();
     }
 
@@ -201,7 +192,13 @@ impl Shell {
     }
 
     /// Focuses `pane` when it is still in that tab's tree, then shows the tab.
-    fn show_pane(&mut self, ix: usize, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_pane(
+        &mut self,
+        ix: usize,
+        pane: PaneId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(tab) = self.tabs.get_mut(ix)
             && tab.tree.contains(pane)
         {
@@ -228,6 +225,7 @@ impl Shell {
             self.active = 0;
             self.close_orphan_panels(window, cx);
             self.persist_tabs();
+            self.reconcile_disconnect_toasts(cx);
             window.focus(&self.focus, cx);
             cx.notify();
             return;
@@ -363,6 +361,7 @@ impl Shell {
         } else {
             self.apply_broadcast(cx);
         }
+        self.reconcile_disconnect_toasts(cx);
         self.close_orphan_panels(window, cx);
         self.persist_tabs();
     }

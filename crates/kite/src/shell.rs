@@ -481,6 +481,7 @@ impl Shell {
             None => self.focus.clone(),
         };
         window.focus(&focus, cx);
+        self.reconcile_disconnect_toasts(cx);
         cx.notify();
     }
 

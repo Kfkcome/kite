@@ -1,10 +1,7 @@
-// Adapted from seed-design (daangn/seed-design, MIT): packages/css/recipes/snackbar.css and
-// snackbar-region.css for sizes, colours and motion; docs/content/components/snackbar.mdx for
-// behaviour (4 s, pause while held, one at a time, queued, at most one action). CubicBezier is
-// from zeron crates/ui/src/motion.rs (MIT).
-//! Snackbars: short, low-severity feedback ("Synced", "Connection removed") shown at the top
-//! centre of the window, one at a time. seed-design places them at the bottom; kite keeps the
-//! terminal's last lines clear and puts them under the titlebar.
+// Adapted from zeron crates/ui/src/motion.rs (CubicBezier) (MIT) and seed-design
+// (daangn/seed-design, MIT) for snackbar timing (4 s, pause while held, queued).
+//! Floating notifications anchored at the bottom right above the status bar, one at a time,
+//! styled with the active [`Theme`] popup surface.
 
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -12,12 +9,12 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
+    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, deferred, div, px,
 };
 
 use super::Shell;
-use crate::theme::{TITLEBAR_HEIGHT, hex};
+use crate::hover::{Accessible as _, HoverFade as _};
 
 /// seed-design: "기본적으로 4초 동안 표시됩니다."
 pub const DEFAULT_DURATION: Duration = Duration::from_secs(4);
@@ -45,6 +42,8 @@ pub(crate) struct Toast {
     duration: Duration,
     /// Follows a transfer: stays until [`Shell::end_progress_toast`], its text replaced in place.
     progress: bool,
+    /// Host alias for a background disconnect notice, pruned when reconnected, viewed, or closed.
+    disconnect_alias: Option<SharedString>,
 }
 
 impl Toast {
@@ -55,6 +54,7 @@ impl Toast {
             action: None,
             duration: DEFAULT_DURATION,
             progress: false,
+            disconnect_alias: None,
         }
     }
 
@@ -62,6 +62,12 @@ impl Toast {
     pub(crate) fn lasting(mut self) -> Self {
         self.duration = Duration::from_secs(3600);
         self.progress = true;
+        self
+    }
+
+    /// Marks this toast as reporting a background disconnect for `alias`.
+    pub(crate) fn for_disconnect(mut self, alias: impl Into<SharedString>) -> Self {
+        self.disconnect_alias = Some(alias.into());
         self
     }
 
@@ -164,6 +170,48 @@ impl Toasts {
             showing: None,
         }
     }
+
+    pub(crate) fn has_disconnect(&self, alias: &str) -> bool {
+        let in_showing = self.showing.as_ref().is_some_and(|(t, c)| {
+            c.leaving_at.is_none() && t.disconnect_alias.as_deref() == Some(alias)
+        });
+        in_showing
+            || self
+                .queue
+                .iter()
+                .any(|t| t.disconnect_alias.as_deref() == Some(alias))
+    }
+
+    pub(crate) fn has_any_disconnect(&self) -> bool {
+        self.showing
+            .as_ref()
+            .is_some_and(|(t, c)| c.leaving_at.is_none() && t.disconnect_alias.is_some())
+            || self.queue.iter().any(|t| t.disconnect_alias.is_some())
+    }
+
+    /// Removes queued disconnect toasts and dismisses the active one when `keep(alias)` is false.
+    /// Returns `true` if anything changed.
+    pub(crate) fn prune_disconnects(
+        &mut self,
+        now: Instant,
+        mut keep: impl FnMut(&str) -> bool,
+    ) -> bool {
+        let before = self.queue.len();
+        self.queue.retain(|t| match t.disconnect_alias.as_deref() {
+            Some(alias) => keep(alias),
+            None => true,
+        });
+        let mut changed = self.queue.len() != before;
+        if let Some((toast, clock)) = self.showing.as_mut()
+            && clock.leaving_at.is_none()
+            && let Some(alias) = toast.disconnect_alias.as_deref()
+            && !keep(alias)
+        {
+            clock.dismiss(now);
+            changed = true;
+        }
+        changed
+    }
 }
 
 impl Shell {
@@ -172,6 +220,63 @@ impl Shell {
         self.toasts.queue.push_back(toast);
         if self.toasts.showing.is_none() {
             self.next_toast(cx);
+        }
+    }
+
+    /// Notifies once per host alias when a connected background pane disconnects.
+    pub(crate) fn disconnect_toast(&mut self, alias: &str, cx: &mut Context<Self>) {
+        if self.toasts.has_disconnect(alias) {
+            return;
+        }
+        let target_alias = alias.to_owned();
+        self.toast(
+            Toast::new(
+                Kind::Critical,
+                crate::i18n::fill("{} disconnected", &[alias]),
+            )
+            .for_disconnect(alias.to_owned())
+            .action(crate::i18n::tr("Show"), move |shell, window, cx| {
+                let disconnected = shell.tabs.iter().enumerate().find_map(|(ix, tab)| {
+                    tab.panes.iter().find_map(|pane| {
+                        (pane.alias == target_alias
+                            && pane.session.read(cx).status != crate::session::Status::Connected)
+                            .then_some((ix, pane.id))
+                    })
+                });
+                let hit = disconnected.or_else(|| {
+                    shell.tabs.iter().enumerate().find_map(|(ix, tab)| {
+                        tab.panes
+                            .iter()
+                            .find_map(|pane| (pane.alias == target_alias).then_some((ix, pane.id)))
+                    })
+                });
+                if let Some((ix, pane_id)) = hit {
+                    shell.show_pane(ix, pane_id, window, cx);
+                }
+            }),
+            cx,
+        );
+    }
+
+    /// Dismisses or drops disconnect toasts whose host has reconnected, is active, or was closed.
+    pub(crate) fn reconcile_disconnect_toasts(&mut self, cx: &mut Context<Self>) {
+        if !self.toasts.has_any_disconnect() {
+            return;
+        }
+        let tabs = &self.tabs;
+        let active = self.active;
+        let settings_open = self.settings_page.is_some();
+        let changed = self.toasts.prune_disconnects(Instant::now(), |alias| {
+            tabs.iter().enumerate().any(|(ix, tab)| {
+                (ix != active || settings_open)
+                    && tab.panes.iter().any(|p| {
+                        p.alias == alias
+                            && p.session.read(cx).status != crate::session::Status::Connected
+                    })
+            })
+        });
+        if changed {
+            cx.notify();
         }
     }
 
@@ -257,168 +362,128 @@ impl Shell {
         let phase = clock.phase(now);
         let (opacity, lift) = match phase {
             Phase::Gone => return None,
-            // seed-design scales 0.8 → 1; gpui has no scale for divs, so the same curve drives
-            // a fade and a short drop instead.
             Phase::Entering(p) => {
                 window.request_animation_frame();
-                (p, (1.0 - p) * -8.0)
+                (p, (p - 1.0) * 6.0)
             }
             Phase::Shown => (1.0, 0.0),
             Phase::Exiting(p) => {
                 window.request_animation_frame();
-                (1.0 - p, p * -8.0)
+                (1.0 - p, -p * 6.0)
             }
         };
         let toast = toast.clone();
-        let colors = Colors::for_theme(self.theme.light);
-        let icon = match toast.kind {
-            Kind::Default => None,
-            Kind::Positive => Some(("✓", colors.positive)),
-            Kind::Critical => Some(("!", colors.critical)),
+        let t = self.theme;
+        let dot_color = match toast.kind {
+            Kind::Default => t.accent,
+            Kind::Positive => t.success,
+            Kind::Critical => t.danger,
         };
         let viewport = window.viewport_size();
         let card = div()
             .id("snackbar")
+            .occlude()
             .opacity(opacity)
-            .mt(px(lift))
-            .w(px(464.0_f32.min(f32::from(viewport.width) - 16.0)))
-            .min_h(px(44.))
-            .p(px(10.))
-            .rounded(px(8.))
-            .bg(colors.background)
+            .min_w(px(200.))
+            .max_w(px(
+                360.0_f32.min((f32::from(viewport.width) - 24.0).max(160.0))
+            ))
+            .pl(px(12.))
+            .pr(px(6.))
+            .py(px(8.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(t.border)
+            .bg(t.popup)
+            .shadow_lg()
             .flex()
             .items_center()
+            .gap(px(8.))
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_hover(cx.listener(|s, hovered: &bool, _, cx| {
                 if let Some((_, clock)) = s.toasts.showing.as_mut() {
                     clock.hover(*hovered, Instant::now());
                 }
                 cx.notify();
             }))
-            .when_some(icon, |el, (glyph, color)| {
-                el.child(
-                    div()
-                        .flex_none()
-                        .size(px(24.))
-                        .pr(px(2.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .size(px(18.))
-                                .rounded_full()
-                                .bg(color)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_size(px(12.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(colors.background)
-                                .child(glyph),
-                        ),
-                )
-            })
+            .child(div().flex_none().size(px(7.)).rounded_full().bg(dot_color))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .px(px(6.))
+                    .text_size(px(13.))
+                    .line_height(px(18.))
+                    .text_color(t.text)
+                    .child(toast.message.clone()),
+            )
+            .when_some(toast.action.clone(), |el, (label, run)| {
+                el.child(
+                    div()
+                        .id("snackbar-action")
+                        .flex_none()
+                        .px(px(8.))
+                        .py(px(3.))
+                        .rounded(px(5.))
+                        .cursor_pointer()
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.accent)
+                        .hover_fade(
+                            "snackbar-action",
+                            t.accent.opacity(0.14),
+                            t.accent.opacity(0.24),
+                        )
+                        .on_click(cx.listener(move |s, _, window, cx| {
+                            run(s, window, cx);
+                            if let Some((_, clock)) = s.toasts.showing.as_mut() {
+                                clock.dismiss(Instant::now());
+                            }
+                            cx.notify();
+                        }))
+                        .child(label),
+                )
+            })
+            .child(
+                div()
+                    .id("snackbar-close")
+                    .size(px(22.))
+                    .flex_none()
                     .flex()
                     .items_center()
-                    .justify_between()
-                    .gap(px(10.))
+                    .justify_center()
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .hover_fade("snackbar-close", gpui::transparent_black(), t.row_hover)
+                    .icon_button(crate::i18n::tr("Close"), &t)
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        if let Some((_, clock)) = s.toasts.showing.as_mut() {
+                            clock.dismiss(Instant::now());
+                        }
+                        cx.notify();
+                    }))
                     .child(
-                        // Takes the width the action leaves and wraps in it; without this a long
-                        // message ran past the card.
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(14.))
-                            .line_height(px(19.))
-                            .text_color(colors.text)
-                            .child(toast.message.clone()),
-                    )
-                    .when_some(toast.action.clone(), |el, (label, run)| {
-                        el.child(
-                            div()
-                                .id("snackbar-action")
-                                .flex_none()
-                                .cursor_pointer()
-                                .text_size(px(14.))
-                                .line_height(px(19.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(colors.action)
-                                .on_click(cx.listener(move |s, _, window, cx| {
-                                    run(s, window, cx);
-                                    if let Some((_, clock)) = s.toasts.showing.as_mut() {
-                                        clock.dismiss(Instant::now());
-                                    }
-                                    cx.notify();
-                                }))
-                                .child(label),
-                        )
-                    }),
+                        crate::icons::icon(crate::icons::CLOSE)
+                            .size(px(14.))
+                            .text_color(crate::hover::blend("snackbar-close", t.muted, t.text)),
+                    ),
             );
+        let base_bottom = if self.settings_page.is_some() {
+            14.0
+        } else {
+            crate::statusline::HEIGHT + 10.0
+        };
         Some(
             deferred(
-                anchored()
-                    .position(point(px(0.), px(TITLEBAR_HEIGHT)))
-                    .child(
-                        div()
-                            .w(viewport.width)
-                            .p(px(8.))
-                            .flex()
-                            .justify_center()
-                            .child(card),
-                    ),
+                div()
+                    .absolute()
+                    .right(px(12.))
+                    .bottom(px(base_bottom + lift))
+                    .child(card),
             )
             .priority(3)
             .into_any_element(),
         )
-    }
-}
-
-/// seed-design's snackbar colours: an inverted neutral-solid surface, so it reads over the
-/// content behind it in either theme.
-struct Colors {
-    background: Hsla,
-    text: Hsla,
-    action: Hsla,
-    positive: Hsla,
-    critical: Hsla,
-}
-
-impl Colors {
-    fn for_theme(light: bool) -> Self {
-        if light { Self::light() } else { Self::dark() }
-    }
-
-    /// seed-design `theme-light` (packages/rootage/__generated__/color.json): bg-neutral-solid =
-    /// gray-900, fg-on-neutral-solid = gray-00, fg-positive = green-700, fg-critical = red-700.
-    /// The action is tern's dark-palette accent, which has the contrast the light accent lacks
-    /// on this dark surface.
-    fn light() -> Self {
-        Self {
-            background: hex(0x2a3038),
-            text: hex(0xffffff),
-            action: hex(0x8b7cf6),
-            positive: hex(0x079171),
-            critical: hex(0xfa342c),
-        }
-    }
-
-    /// seed-design `theme-dark`.
-    fn dark() -> Self {
-        Self {
-            // bg-neutral-solid = palette gray-1000, fg-on-neutral-solid = gray-100 (dark).
-            background: hex(0xf3f4f5),
-            text: hex(0x16171b),
-            // fg-brand in seed is its carrot orange; tern's brand is its accent.
-            action: hex(0x6d5ce8),
-            // fg-positive = green-700, fg-critical = red-700 (dark).
-            positive: hex(0x22b27f),
-            critical: hex(0xff6e60),
-        }
     }
 }
 
@@ -485,6 +550,7 @@ impl CubicBezier {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -537,5 +603,58 @@ mod tests {
         assert!(ENTER_CURVE.eval(0.5) > 0.8);
         assert!(EXIT_CURVE.eval(0.5) < 0.4);
         assert_eq!(ENTER_CURVE.eval(1.0), 1.0);
+    }
+
+    #[test]
+    fn has_disconnect_checks_active_non_leaving_and_queued_only() {
+        let t0 = Instant::now();
+        let mut toasts = Toasts::new();
+        toasts.queue.push_back(Toast::new(Kind::Default, "Synced"));
+        toasts
+            .queue
+            .push_back(Toast::new(Kind::Critical, "prod disconnected").for_disconnect("prod"));
+        assert!(toasts.has_disconnect("prod"));
+        assert!(!toasts.has_disconnect("staging"));
+        assert!(toasts.has_any_disconnect());
+
+        let active = toasts.queue.pop_back().unwrap();
+        let mut clock = Clock::new(t0, DEFAULT_DURATION);
+        toasts.showing = Some((active, clock));
+        assert!(toasts.has_disconnect("prod"));
+
+        clock.dismiss(t0 + ms(100));
+        toasts.showing.as_mut().unwrap().1 = clock;
+        assert!(!toasts.has_disconnect("prod"));
+        assert!(!toasts.has_any_disconnect());
+    }
+
+    #[test]
+    fn prune_disconnects_dismisses_resolved_and_keeps_unrelated_toasts() {
+        let t0 = Instant::now();
+        let mut toasts = Toasts::new();
+        toasts.showing = Some((
+            Toast::new(Kind::Critical, "prod disconnected").for_disconnect("prod"),
+            Clock::new(t0, DEFAULT_DURATION),
+        ));
+        toasts.queue.push_back(Toast::new(Kind::Positive, "Saved"));
+        toasts.queue.push_back(
+            Toast::new(Kind::Critical, "staging disconnected").for_disconnect("staging"),
+        );
+        toasts
+            .queue
+            .push_back(Toast::new(Kind::Critical, "db disconnected").for_disconnect("db"));
+
+        // `prod` and `staging` recovered, `db` is still disconnected in the background.
+        let changed = toasts.prune_disconnects(t0 + ms(500), |alias| alias == "db");
+        assert!(changed);
+        assert!(matches!(
+            toasts.showing.as_mut().unwrap().1.phase(t0 + ms(520)),
+            Phase::Exiting(_)
+        ));
+        let remaining: Vec<&str> = toasts.queue.iter().map(|t| t.message.as_ref()).collect();
+        assert_eq!(remaining, ["Saved", "db disconnected"]);
+
+        // Calling again with no further changes is a no-op and never touches normal toasts.
+        assert!(!toasts.prune_disconnects(t0 + ms(530), |alias| alias == "db"));
     }
 }
